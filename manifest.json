@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "eMe Chat Collector",
+  "version": "0.1.0",
+  "description": "Copies your own AI chat conversations into your own eMe instance.",
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://grok.com/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "eMe Chat Collector"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>eMe Chat Collector</title>
+    <style>
+      body {
+        font: 14px/1.5 system-ui, sans-serif;
+        margin: 2rem auto;
+        max-width: 34rem;
+        padding: 0 1rem;
+      }
+      label { display: block; margin: 0.4rem 0; }
+      input[type="text"], input[type="password"] { width: 100%; padding: 0.4rem; }
+      fieldset { border: 1px solid #ccc; margin: 1rem 0; }
+      pre { background: #f4f4f4; padding: 0.75rem; overflow-x: auto; white-space: pre-wrap; }
+      .note { color: #555; font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <h1>eMe Chat Collector</h1>
+    <p class="note">
+      Copies your own AI chat conversations into your own eMe instance. Nothing is
+      collected until you fill this in and switch a provider on.
+    </p>
+
+    <fieldset>
+      <legend>Your eMe</legend>
+      <label for="base-url">URL</label>
+      <input id="base-url" type="text" placeholder="https://eme.example.com" />
+      <label for="api-key">API key</label>
+      <input id="api-key" type="password" autocomplete="off" />
+      <p class="note">
+        Stored in this browser profile only. The key is currently unscoped — see the
+        README before putting one anywhere you would mind losing.
+      </p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Collect from</legend>
+      <div id="providers"></div>
+    </fieldset>
+
+    <button id="save">Save</button>
+    <button id="sync">Sync now</button>
+    <pre id="status"></pre>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
