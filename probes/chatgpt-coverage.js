@@ -19,11 +19,15 @@
  *     actually returned is the only honest measure, and is what round 2
  *     does.
  *
- * BEFORE RUNNING: open a conversation that lives inside a PROJECT, copy the
- * id out of the address bar (chatgpt.com/c/<id>), and paste it below. That
- * is the decisive test and it was skipped last time.
+ * BEFORE RUNNING: open a conversation that lives inside a PROJECT and paste
+ * its whole address below. A project conversation's URL looks like
+ *
+ *   chatgpt.com/g/g-p-<projectId>-<slug>/c/<conversationId>
+ *
+ * so it carries both ids, and the slug is the project's name — which is why
+ * nothing from it is committed to this repo or printed in full below.
  */
-const PROJECT_CONVERSATION_ID = "";   // ← paste one; without it the key question goes unanswered
+const PROJECT_CONVERSATION_URL = "";  // ← paste the whole URL
 
 (async () => {
   const log = (...a) => console.log("[probe]", ...a);
@@ -78,17 +82,32 @@ const PROJECT_CONVERSATION_ID = "";   // ← paste one; without it the key quest
     log("  first id =", JSON.stringify(inner.id ?? items[0].id));
   }
 
-  // 3. A project's conversations. Guesses; a 200 with items is the answer,
-  //    and 404s cost nothing. If all fail, capture it instead: open a
-  //    project in the UI with devtools recording and find the request that
-  //    lists its chats.
+  // 3. A project's conversations. The sidebar request the UI makes carries
+  //    `conversations_per_gizmo=0`, which reads like "give me the projects
+  //    but none of their chats" — so asking for some is the obvious next
+  //    question, and the cheapest.
+  const withChats = await get(
+    "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=10&limit=50&owned_only=false",
+  );
+  const withChatsItems = withChats.body?.items ?? [];
+  log(`sidebar?conversations_per_gizmo=10 → ${withChats.status}, ${withChatsItems.length} item(s)`);
+  if (withChatsItems[0]) {
+    log("  item keys =", Object.keys(withChatsItems[0]));
+    const convs =
+      withChatsItems[0].conversations ?? withChatsItems[0].conversation_ids ?? null;
+    log("  conversations present =", Array.isArray(convs) ? `array(${convs.length})` : "no");
+    if (Array.isArray(convs) && convs[0]) {
+      log("  conversation entry keys =", Object.keys(convs[0]));
+    }
+  }
+
+  // Still worth trying the per-project paths, in case the sidebar only ever
+  // summarises. 404s cost nothing.
   const projectId = (items[0]?.gizmo ?? items[0] ?? {}).id;
   if (projectId) {
     for (const path of [
       `/backend-api/gizmos/${projectId}/conversations?limit=10`,
       `/backend-api/conversations?order=updated&limit=10&gizmo_id=${projectId}`,
-      `/backend-api/gizmos/snorlax/${projectId}/conversations?limit=10`,
-      `/backend-api/gizmo/${projectId}/conversations?limit=10`,
     ]) {
       const r = await get(path);
       log(`  GET ${path.split("?")[0]} → ${r.status}, ${(r.body?.items ?? []).length} item(s)`);
@@ -96,18 +115,24 @@ const PROJECT_CONVERSATION_ID = "";   // ← paste one; without it the key quest
   }
 
   // 4. The decisive test, and the whole reason for this probe.
-  if (!PROJECT_CONVERSATION_ID) {
-    return log("project check: SKIPPED — paste a project conversation id at the top and re-run");
+  if (!PROJECT_CONVERSATION_URL) {
+    return log("project check: SKIPPED — paste a project conversation URL at the top");
   }
-  log("project check: in the default list =", base.has(PROJECT_CONVERSATION_ID));
-  const one = await get(`/backend-api/conversations/${PROJECT_CONVERSATION_ID}`);
+  const match = PROJECT_CONVERSATION_URL.match(/\/g\/(g-p-[0-9a-f]+)[^/]*\/c\/([0-9a-f-]{36})/);
+  if (!match) return log("project check: could not read that URL — expected .../g/g-p-…/c/<uuid>");
+  const [, projectFromUrl, conversationId] = match;
+
+  log("project check: in the default list =", base.has(conversationId));
+  const one = await get(`/backend-api/conversations/${conversationId}`);
   log(
     "project check: direct fetch →",
     one.status,
     `${(one.body?.messages ?? []).length} message(s)`,
-    `gizmo_id=${JSON.stringify(one.body?.gizmo_id)}`,
+    `gizmo_id matches the URL =`,
+    one.body?.gizmo_id === projectFromUrl,
     `conversation_origin=${JSON.stringify(one.body?.conversation_origin)}`,
   );
-  log("   → in the list: nothing to do. Not in the list but fetchable:");
-  log("     a wider list step. Not fetchable: a real adapter change.");
+  log("   → in the list: nothing to do.");
+  log("     absent but fetchable: a wider list step, same adapter.");
+  log("     not fetchable: a real adapter change.");
 })();
