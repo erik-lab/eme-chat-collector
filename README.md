@@ -124,6 +124,18 @@ immediately and prints the report, errors included.
 
 After that it syncs hourly on a `chrome.alarms` schedule.
 
+**Re-send everything** forgets the per-provider watermark, so the next sync
+sends every conversation again. That is for when eMe learns to read a field the
+extension was already sending — the stored records are stale but nothing looks
+out of date, and no ordinary sync will fix them. It cannot duplicate anything:
+each conversation is keyed on its own provider id and updates in place.
+
+Each report lists `messageCounts`, the turn counts of what it sent, largest
+first. That is a diagnostic rather than a statistic: a provider's message
+endpoint may return the tail its UI needs rather than the whole conversation
+(ChatGPT's `num_turns=10` does exactly that), and the tell is several
+conversations reporting the same suspiciously round number.
+
 ### Getting the URL right
 
 It is the URL your eMe **API** answers on, which is often not the address you

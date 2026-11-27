@@ -71,6 +71,12 @@ async function requestHostAccess(baseUrl: string): Promise<boolean> {
   return chrome.permissions.request({ origins: [origin] });
 }
 
+$("forget").addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ kind: "forget" });
+  $("status").textContent = "Forgotten. The next sync will re-send everything.";
+  await render();
+});
+
 $("sync").addEventListener("click", async () => {
   $("status").textContent = "Syncing…";
   // Whatever happened, including the errors. A sync that failed and said

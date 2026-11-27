@@ -42,6 +42,26 @@ export async function loadWatermarks(): Promise<Watermarks> {
   return (stored[WATERMARK_KEY] as Watermarks | undefined) ?? {};
 }
 
+/**
+ * Forget what has been sent, so the next sync re-sends everything.
+ *
+ * Needed whenever the *backend* learns to read a field the extension was
+ * already sending: the records are stale, but the watermark says there is
+ * nothing to do, and no amount of syncing fixes them. Re-sending is cheap and
+ * safe — the upsert is keyed on the provider's conversation id, so it updates
+ * in place rather than duplicating, and eMe skips re-enrichment when the
+ * content has not changed.
+ */
+export async function clearWatermarks(sources?: string[]): Promise<void> {
+  if (sources === undefined) {
+    await chrome.storage.local.remove(WATERMARK_KEY);
+    return;
+  }
+  const current = await loadWatermarks();
+  for (const source of sources) delete current[source];
+  await chrome.storage.local.set({ [WATERMARK_KEY]: current });
+}
+
 export async function setWatermark(source: string, value: string): Promise<void> {
   const current = await loadWatermarks();
   // Only ever move forward. A provider that returns an out-of-order row must

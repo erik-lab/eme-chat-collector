@@ -49,6 +49,14 @@
 
     <button id="save">Save</button>
     <button id="sync">Sync now</button>
+    <button id="forget">Re-send everything</button>
+    <p class="note">
+      <strong>Re-send everything</strong> forgets what has already been sent, so
+      the next sync sends every conversation again. Use it when eMe has learned
+      to read something the extension was already sending — the records are
+      stale but nothing looks out of date. It cannot duplicate anything: each
+      conversation is keyed on its own id and updates in place.
+    </p>
     <pre id="status"></pre>
 
     <script type="module" src="options.js"></script>

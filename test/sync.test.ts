@@ -189,6 +189,42 @@ describe("syncProvider", () => {
     assert.equal(report.watermark, "2026-11-15T13:10:00.000Z", "watermark stays behind c2");
   });
 
+  it("reports the turn count of everything it sent, largest first", async () => {
+    // A diagnostic for a cap. Every provider might be returning the tail the
+    // UI needs rather than the whole conversation, and the tell is several
+    // conversations reporting the same round number.
+    stubFetch(ok);
+    const counts: Record<string, number> = { c1: 4, c2: 50, c3: 12 };
+    const adapter = fakeAdapter({
+      fetchConversation: async (id: string) => ({
+        id,
+        title: id,
+        transcript: `User: ${id}`,
+        startedAt: "2026-11-15T13:00:00.000Z",
+        endedAt: "2026-11-15T13:00:00.000Z",
+        messageCount: counts[id] ?? 0,
+        model: null,
+        url: `https://fake.test/${id}`,
+      }),
+    });
+
+    const report = await syncProvider(adapter, SETTINGS, { sleep: noSleep });
+
+    assert.deepEqual(report.messageCounts, [50, 12, 4]);
+  });
+
+  it("counts only what was actually stored", async () => {
+    // A conversation eMe refused is not in the index, so counting it would
+    // make the diagnostic lie about what is there.
+    stubFetch((_url, body) =>
+      (body as { id: string }).id === "c2" ? new Response("no", { status: 422 }) : ok(),
+    );
+
+    const report = await syncProvider(fakeAdapter(), SETTINGS, { sleep: noSleep });
+
+    assert.equal(report.messageCounts.length, 1);
+  });
+
   it("caps a run and says it was capped", async () => {
     stubFetch(ok);
 

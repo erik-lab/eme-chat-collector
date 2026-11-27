@@ -12,7 +12,7 @@
  */
 
 import { BUILD_ID } from "./build-info.js";
-import { loadSettings, loadWatermarks, setWatermark } from "./settings.js";
+import { clearWatermarks, loadSettings, loadWatermarks, setWatermark } from "./settings.js";
 import { PROVIDERS, providerBySource } from "./providers/index.js";
 import { syncProvider, type SyncReport } from "./sync.js";
 
@@ -43,6 +43,13 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, respond) => {
       .then((reports) => respond({ buildId: BUILD_ID, ranAt: new Date().toISOString(), reports }))
       .catch((error: unknown) => respond({ buildId: BUILD_ID, error: String(error) }));
     return true; // response is async
+  }
+  if (kind === "forget") {
+    const source = (message as { source?: unknown }).source;
+    void clearWatermarks(typeof source === "string" ? [source] : undefined).then(() =>
+      respond({ ok: true }),
+    );
+    return true;
   }
   if (kind === "last-report") {
     void chrome.storage.local.get("lastReports").then((s) => respond(s.lastReports ?? []));
@@ -77,6 +84,7 @@ async function runOne(source: string): Promise<SyncReport> {
     changed: 0,
     sent: 0,
     skipped: 0,
+    messageCounts: [],
     errors,
     watermark: undefined,
     truncated: false,

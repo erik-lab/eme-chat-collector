@@ -36,6 +36,17 @@ export interface SyncReport {
   /** Conversations successfully stored in eMe. */
   sent: number;
   /**
+   * Turn counts of what was sent, largest first.
+   *
+   * A diagnostic, not a statistic. Every provider's message endpoint might be
+   * returning the tail the UI needs rather than the whole conversation —
+   * ChatGPT's `num_turns=10` does exactly that — and the tell is a cap: several
+   * conversations reporting the same suspiciously round number. Without this
+   * the only way to notice is to read a long transcript and realise its
+   * beginning is missing, which is not a thing anyone does.
+   */
+  messageCounts: number[];
+  /**
    * Conversations left alone because they were still being generated. Not a
    * failure — the next run picks them up.
    */
@@ -72,6 +83,7 @@ export async function syncProvider(
     changed: changed.length,
     sent: 0,
     skipped: 0,
+    messageCounts: [],
     errors: [],
     watermark: options.since,
     truncated: changed.length > max,
@@ -94,6 +106,7 @@ export async function syncProvider(
         break;
       }
       report.sent += 1;
+      report.messageCounts.push(conversation.messageCount);
       report.watermark = summary.updatedAt;
     } catch (error) {
       // Mid-generation is the normal state of whatever the user is typing in
@@ -106,6 +119,7 @@ export async function syncProvider(
     }
   }
 
+  report.messageCounts.sort((a, b) => b - a);
   return report;
 }
 
