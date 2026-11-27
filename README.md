@@ -157,6 +157,18 @@ immediately and prints the report, errors included.
 
 After that it syncs hourly on a `chrome.alarms` schedule.
 
+**A first sync works through your history in the background.** Each run is
+capped so no single sync walks an entire account, and a run that hits the cap
+schedules the next one a minute later instead of waiting the hour — 761
+ChatGPT conversations take about half an hour rather than thirty. It resumes
+after a browser restart, because the watermark is stored and the follow-up is
+an alarm rather than a loop in memory: an MV3 service worker is killed
+whenever the browser likes, and a long backfill held in memory would stop
+silently partway.
+
+A run that errored does **not** come straight back. Something being wrong is
+not a reason to retry it sixty times an hour against someone else's server.
+
 **Re-send everything** forgets the per-provider watermark, so the next sync
 sends every conversation again. That is for when eMe learns to read a field the
 extension was already sending — the stored records are stale but nothing looks

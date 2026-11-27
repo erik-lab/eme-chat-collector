@@ -14,10 +14,26 @@
 import { BUILD_ID } from "./build-info.js";
 import { clearWatermarks, loadSettings, loadWatermarks, setWatermark } from "./settings.js";
 import { PROVIDERS, providerBySource } from "./providers/index.js";
+import { shouldContinueSoon } from "./schedule.js";
 import { syncProvider, type SyncReport } from "./sync.js";
 
 const ALARM = "eme-sync";
 const PERIOD_MINUTES = 60;
+
+/**
+ * A one-shot follow-up, for when a run ended with known work left.
+ *
+ * Each run is capped so no single sync walks an entire account, which is
+ * right. Waiting the full hour to resume is not: a first sync of 761
+ * conversations would take thirty hours, and the user has no reason to think
+ * it is still going.
+ *
+ * An alarm rather than a loop because MV3 service workers are killed
+ * whenever the browser likes. A long-running backfill in memory would stop
+ * silently partway; an alarm survives the worker dying.
+ */
+const CONTINUE_ALARM = "eme-sync-continue";
+const CONTINUE_MINUTES = 1;
 
 chrome.runtime.onInstalled.addListener(() => {
   void chrome.alarms.create(ALARM, { periodInMinutes: PERIOD_MINUTES });
@@ -29,7 +45,7 @@ chrome.action.onClicked.addListener(() => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM) void syncAll();
+  if (alarm.name === ALARM || alarm.name === CONTINUE_ALARM) void syncAll();
 });
 
 /** The popup asks for a sync, or for the last run's report. */
@@ -114,4 +130,8 @@ async function recordReports(reports: SyncReport[]): Promise<void> {
     lastRunAt: new Date().toISOString(),
     buildId: BUILD_ID,
   });
+
+  if (shouldContinueSoon(reports)) {
+    await chrome.alarms.create(CONTINUE_ALARM, { delayInMinutes: CONTINUE_MINUTES });
+  }
 }
