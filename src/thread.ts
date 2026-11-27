@@ -22,6 +22,12 @@ import type { Message } from "./types.js";
  * message that is not present, the thread is reconstructed from the newest
  * message instead, because a conversation we can partly read is worth more
  * than one we discard.
+ *
+ * The walk also stops at a parent that is not in the set. For Grok that is the
+ * normal case and not damage: its first message points at a synthetic root the
+ * API never returns. For a provider that pages its turns it would mean the
+ * opposite — turns not yet fetched — so an adapter that pages must root its own
+ * chain before calling this, rather than relying on the stop.
  */
 export function activePath(messages: Message[], leafId: string | null): Message[] {
   if (messages.length === 0) return [];

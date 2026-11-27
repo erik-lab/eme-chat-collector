@@ -99,7 +99,10 @@ describe("activePath", () => {
   });
 
   it("stops at a parent that is missing, keeping what it has", () => {
-    // A truncated fetch should yield the tail of the thread, not an error.
+    // Grok's first message points at a synthetic root its API never returns,
+    // so this is the ordinary case rather than a damaged payload. For a
+    // provider that pages its turns the same shape would mean turns not yet
+    // fetched, which is the adapter's job to resolve before calling this.
     const messages = [msg("a2", "u2", "answer", 4), msg("u2", "u-not-here", "question", 3)];
 
     assert.deepEqual(

@@ -49,9 +49,17 @@ const LIST_PATH = "/rest/app-chat/conversations";
  * the 200-with-nothing that the POST would have given, and only because the
  * guess was wrong in the loud direction.
  *
- * Still unknown: whether `/responses` returns a whole long conversation or
- * just the tail the UI needs. ChatGPT's `num_turns=10` does exactly that, so
- * this wants checking against a genuinely long thread before it is trusted.
+ * Verified complete, not a tail. Sixteen collected conversations all reported
+ * exactly two turns, which looks precisely like ChatGPT's `num_turns=10`
+ * truncation — and was not: they were sixteen one-shot questions. Adding turns
+ * to one of them and re-syncing reported six. So `/responses` returns the whole
+ * conversation and there is nothing to page.
+ *
+ * The thing that made this look like a cap is worth writing down, because it
+ * will come up again. Grok's first message carries a `parentResponseId` that is
+ * NOT in the array — a synthetic root the endpoint never returns. A dangling
+ * parent normally means "there are turns you have not fetched", so it reads as
+ * evidence of truncation. Here it is just how Grok roots a thread.
  */
 const MESSAGES_PATH = (id: string) => `/rest/app-chat/conversations/${id}/responses`;
 

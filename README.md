@@ -60,7 +60,7 @@ perfectly and is not what happened.
 
 | Provider | Status | Auth |
 |---|---|---|
-| Grok | **Implemented**, syncing | Cookies |
+| Grok | **Implemented**, verified complete | Cookies |
 | ChatGPT | Next | Bearer token from `/api/auth/session` |
 | Claude | Next | Cookies, plus an organization-UUID discovery step |
 | Gemini | Deferred | — |
@@ -70,6 +70,11 @@ request needs a dated build string that changes with every deploy. That is a
 protocol to reimplement and then maintain against a weekly-moving target; it
 would cost more than the other three combined. Google Takeout does carry
 Gemini Apps Activity, so a periodic import is the likelier route.
+
+`GET …/responses` returns whole conversations, not the tail its UI needs —
+checked by extending a thread and re-syncing, not assumed. Grok's first message
+does carry a `parentResponseId` that is never in the array, which looks exactly
+like evidence of truncation and is only how Grok roots a thread.
 
 **Grok's two message endpoints are a trap worth knowing about.** Opening a
 conversation fires both `GET …/responses` (the turns) and
