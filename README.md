@@ -104,6 +104,18 @@ npm run check     # typecheck, tests, build
 Then in Chrome: `chrome://extensions` → Developer mode → **Load unpacked** →
 choose `dist/`.
 
+**After every `git pull`, rebuild and reload.** `dist/` is not in git, so a
+pull alone changes nothing the browser runs:
+
+```bash
+git pull && npm run build      # then hit ⟳ on the extension card
+```
+
+Reloading the *page* does nothing — no content script is involved, the service
+worker does the fetching itself. Every sync report carries the `buildId` it
+came from, so a stale build is visible in the output rather than something to
+wonder about.
+
 Click the toolbar icon to open settings. Enter your eMe URL and an API key,
 tick the providers you want, and **Save**. Nothing is collected until you do:
 an extension that started shipping conversations the moment it was installed

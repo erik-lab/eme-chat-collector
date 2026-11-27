@@ -11,6 +11,7 @@
  * to object to.
  */
 
+import { BUILD_ID } from "./build-info.js";
 import { loadSettings, loadWatermarks, setWatermark } from "./settings.js";
 import { PROVIDERS, providerBySource } from "./providers/index.js";
 import { syncProvider, type SyncReport } from "./sync.js";
@@ -36,7 +37,11 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, respond) => {
   const kind = (message as { kind?: unknown } | null)?.kind;
   if (kind === "sync-now") {
     const source = (message as { source?: unknown }).source;
-    void (typeof source === "string" ? syncOne(source) : syncAll()).then(respond);
+    void (typeof source === "string" ? syncOne(source) : syncAll())
+      // The build stamp travels with the result, so a report pasted into a
+      // bug thread says which code produced it.
+      .then((reports) => respond({ buildId: BUILD_ID, ranAt: new Date().toISOString(), reports }))
+      .catch((error: unknown) => respond({ buildId: BUILD_ID, error: String(error) }));
     return true; // response is async
   }
   if (kind === "last-report") {
@@ -95,5 +100,9 @@ async function runOne(source: string): Promise<SyncReport> {
 async function recordReports(reports: SyncReport[]): Promise<void> {
   // Kept so the popup can show what happened, including the errors. A sync
   // that failed and said nothing is worse than one that failed loudly.
-  await chrome.storage.local.set({ lastReports: reports, lastRunAt: new Date().toISOString() });
+  await chrome.storage.local.set({
+    lastReports: reports,
+    lastRunAt: new Date().toISOString(),
+    buildId: BUILD_ID,
+  });
 }
