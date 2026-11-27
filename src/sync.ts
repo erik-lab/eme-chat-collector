@@ -14,6 +14,7 @@
 import type { ConversationSummary, ProviderAdapter } from "./types.js";
 import type { Settings } from "./settings.js";
 import { upsertConversation } from "./eme.js";
+import { ConversationNotSettled } from "./types.js";
 
 export interface SyncOptions {
   /** Only conversations changed after this are fetched. */
@@ -34,6 +35,11 @@ export interface SyncReport {
   changed: number;
   /** Conversations successfully stored in eMe. */
   sent: number;
+  /**
+   * Conversations left alone because they were still being generated. Not a
+   * failure — the next run picks them up.
+   */
+  skipped: number;
   /** One line per conversation that failed, so a run never fails silently. */
   errors: string[];
   /** The newest `updatedAt` actually sent. The caller stores it. */
@@ -65,6 +71,7 @@ export async function syncProvider(
     listed: listed.length,
     changed: changed.length,
     sent: 0,
+    skipped: 0,
     errors: [],
     watermark: options.since,
     truncated: changed.length > max,
@@ -89,7 +96,12 @@ export async function syncProvider(
       report.sent += 1;
       report.watermark = summary.updatedAt;
     } catch (error) {
-      report.errors.push(`${summary.id}: ${describe(error)}`);
+      // Mid-generation is the normal state of whatever the user is typing in
+      // right now, so it is reported as skipped rather than as a failure.
+      // Either way the run stops: this batch is oldest-first, so everything
+      // after this is newer and the watermark cannot move past it.
+      if (error instanceof ConversationNotSettled) report.skipped += 1;
+      else report.errors.push(`${summary.id}: ${describe(error)}`);
       break;
     }
   }

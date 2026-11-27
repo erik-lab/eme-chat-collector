@@ -71,6 +71,20 @@ export interface ProviderAdapter {
   fetchConversation(id: string): Promise<Conversation>;
 }
 
+/**
+ * Thrown when a conversation is still being generated.
+ *
+ * Not an error: the user is mid-chat. Storing it now would persist half an
+ * answer and then never revisit it, because the watermark would have moved
+ * past it. The sync leaves it for the next run instead.
+ */
+export class ConversationNotSettled extends Error {
+  constructor(provider: string, id: string) {
+    super(`${provider}: conversation ${id} is still generating`);
+    this.name = "ConversationNotSettled";
+  }
+}
+
 /** Thrown when a provider answers in a shape we do not recognise. */
 export class ProviderShapeError extends Error {
   constructor(provider: string, detail: string) {

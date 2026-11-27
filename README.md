@@ -60,7 +60,7 @@ perfectly and is not what happened.
 
 | Provider | Status | Auth |
 |---|---|---|
-| Grok | **Implemented** | Cookies |
+| Grok | **Implemented**, syncing | Cookies |
 | ChatGPT | Next | Bearer token from `/api/auth/session` |
 | Claude | Next | Cookies, plus an organization-UUID discovery step |
 | Gemini | Deferred | — |
@@ -70,6 +70,14 @@ request needs a dated build string that changes with every deploy. That is a
 protocol to reimplement and then maintain against a weekly-moving target; it
 would cost more than the other three combined. Google Takeout does carry
 Gemini Apps Activity, so a periodic import is the likelier route.
+
+**Grok's two message endpoints are a trap worth knowing about.** Opening a
+conversation fires both `GET …/responses` (the turns) and
+`POST …/load-responses` (the UI's load-more). The second one returns `200`
+with zero responses when asked for nothing in particular, so a collector built
+on it reports an empty account rather than a wrong endpoint. The first guess
+here was `GET …/load-responses`, which returns `501` — wrong, but loudly
+wrong, which is the only reason it took one round trip to find.
 
 **ChatGPT's failure mode is worth knowing in advance:** cookies alone return
 *zero items*, not a `401`. A collector built on cookies would report "no

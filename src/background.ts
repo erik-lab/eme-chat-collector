@@ -71,6 +71,7 @@ async function runOne(source: string): Promise<SyncReport> {
     listed: 0,
     changed: 0,
     sent: 0,
+    skipped: 0,
     errors,
     watermark: undefined,
     truncated: false,

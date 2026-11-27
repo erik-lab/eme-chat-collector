@@ -17,7 +17,7 @@ import {
   parseModel,
   parseResponses,
 } from "../src/providers/grok.js";
-import { ProviderShapeError } from "../src/types.js";
+import { ConversationNotSettled, ProviderShapeError } from "../src/types.js";
 
 const LIST = {
   conversations: [
@@ -204,6 +204,26 @@ describe("buildConversation", () => {
 
   it("keys the upsert on Grok's own conversation id", () => {
     assert.equal(conversation.id, SUMMARY.id);
+  });
+
+  it("refuses a conversation Grok is still generating", () => {
+    // Storing it now would persist half an answer, and the watermark would
+    // move past it and never come back for the rest.
+    assert.throws(
+      () => buildConversation(SUMMARY, { ...RESPONSES, inflightResponses: [{ responseId: "x" }] }),
+      ConversationNotSettled,
+    );
+  });
+
+  it("treats an empty inflight list as settled", () => {
+    // The normal case: every captured payload carries the key, empty.
+    assert.equal(buildConversation(SUMMARY, RESPONSES).messageCount, 2);
+  });
+
+  it("treats a payload with no inflight key as settled", () => {
+    const { responses } = RESPONSES;
+
+    assert.equal(buildConversation(SUMMARY, { responses }).messageCount, 2);
   });
 
   it("raises rather than storing an empty conversation", () => {

@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
 import { selectChanged, syncProvider } from "../src/sync.js";
+import { ConversationNotSettled } from "../src/types.js";
 import type { Conversation, ConversationSummary, ProviderAdapter } from "../src/types.js";
 
 const SETTINGS = { baseUrl: "https://eme.test", apiKey: "k", enabled: ["fake"] };
@@ -158,6 +159,32 @@ describe("syncProvider", () => {
 
     assert.equal(report.sent, 0);
     assert.match(report.errors[0] ?? "", /404/);
+  });
+
+  it("skips a conversation still being generated without calling it a failure", async () => {
+    stubFetch(ok);
+    const adapter = fakeAdapter({
+      fetchConversation: async (id: string) => {
+        if (id === "c2") throw new ConversationNotSettled("fake", id);
+        return {
+          id,
+          title: id,
+          transcript: `User: ${id}`,
+          startedAt: "2026-11-15T13:00:00.000Z",
+          endedAt: "2026-11-15T13:00:00.000Z",
+          messageCount: 1,
+          model: null,
+          url: `https://fake.test/${id}`,
+        };
+      },
+    });
+
+    const report = await syncProvider(adapter, SETTINGS, { sleep: noSleep });
+
+    assert.equal(report.sent, 1);
+    assert.equal(report.skipped, 1);
+    assert.deepEqual(report.errors, [], "mid-chat is not an error");
+    assert.equal(report.watermark, "2026-11-15T13:10:00.000Z", "watermark stays behind c2");
   });
 
   it("caps a run and says it was capped", async () => {

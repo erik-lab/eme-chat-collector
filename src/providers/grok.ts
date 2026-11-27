@@ -16,7 +16,7 @@
  * user's own search index.
  */
 
-import { ProviderShapeError } from "../types.js";
+import { ConversationNotSettled, ProviderShapeError } from "../types.js";
 import type { Conversation, ConversationSummary, Message, ProviderAdapter } from "../types.js";
 import { activePath, renderTranscript } from "../thread.js";
 
@@ -35,21 +35,25 @@ const ORIGIN = "https://grok.com";
 const LIST_PATH = "/rest/app-chat/conversations";
 
 /**
- * The one piece not captured exactly.
+ * Confirmed by probe, after a first guess was wrong.
  *
- * Opening a conversation in the UI fires a `responses` and a `load-responses`
- * request, and the body of one of them is the shape `parseResponses` below
- * parses — that part is from a real capture and is covered by tests. The URL
- * and method were not written down at the time.
+ * Opening a conversation in the UI fires two requests, and the obvious-looking
+ * one is the wrong one. `GET …/responses` returns
+ * `{responses, inflightResponses}` — the actual turns. `load-responses` is the
+ * UI's load-more follow-on: `POST` it with an empty `responseIds` and it
+ * returns zero responses quite happily, which is how a collector built on it
+ * would report an empty account instead of a wrong endpoint.
  *
- * So this is a reconstruction, and it is the first thing to check if Grok
- * sync returns nothing: open a conversation with devtools recording, copy the
- * request that carries the message text, and correct this line. The error
- * thrown below says as much, because a collector that reports "no
- * conversations" when it means "I called the wrong URL" is the exact failure
- * this project keeps paying for.
+ * The first attempt here was `GET …/load-responses`, which returns **501** —
+ * the endpoint is real and does not take GET. That is a better failure than
+ * the 200-with-nothing that the POST would have given, and only because the
+ * guess was wrong in the loud direction.
+ *
+ * Still unknown: whether `/responses` returns a whole long conversation or
+ * just the tail the UI needs. ChatGPT's `num_turns=10` does exactly that, so
+ * this wants checking against a genuinely long thread before it is trusted.
  */
-const MESSAGES_PATH = (id: string) => `/rest/app-chat/conversations/${id}/load-responses`;
+const MESSAGES_PATH = (id: string) => `/rest/app-chat/conversations/${id}/responses`;
 
 /** A list row, as `/conversations` returns it. */
 interface GrokConversationRow {
@@ -139,6 +143,12 @@ export function parseResponses(payload: unknown): Message[] {
   return messages;
 }
 
+/** True while Grok is still generating a reply. */
+export function isGenerating(payload: unknown): boolean {
+  const inflight = (payload as { inflightResponses?: unknown } | null)?.inflightResponses;
+  return Array.isArray(inflight) && inflight.length > 0;
+}
+
 /** The model named on the last assistant turn, if Grok named one. */
 export function parseModel(payload: unknown): string | null {
   const rows = (payload as { responses?: unknown } | null)?.responses;
@@ -157,6 +167,11 @@ export function parseModel(payload: unknown): string | null {
  * message — see `activePath`.
  */
 export function buildConversation(summary: ConversationSummary, payload: unknown): Conversation {
+  // Grok tells us when it has not finished talking. Taking it at its word
+  // costs one skipped conversation and saves storing half an answer under a
+  // watermark that would never come back for the rest.
+  if (isGenerating(payload)) throw new ConversationNotSettled("grok", summary.id);
+
   const path = activePath(parseResponses(payload), null);
   if (path.length === 0) {
     throw new ProviderShapeError("grok", `conversation ${summary.id} yielded no messages`);
