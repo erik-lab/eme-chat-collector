@@ -74,7 +74,10 @@ export async function syncProvider(
   const delayMs = options.delayMs ?? DEFAULT_DELAY_MS;
   const sleep = options.sleep ?? realSleep;
 
-  const listed = await adapter.listConversations();
+  // The watermark goes in as a hint: a provider that pages newest-first can
+  // stop early instead of walking all of history. selectChanged filters
+  // again regardless, so an adapter that ignores it is still correct.
+  const listed = await adapter.listConversations(options.since);
   const changed = selectChanged(listed, options.since);
 
   const report: SyncReport = {

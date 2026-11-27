@@ -61,7 +61,7 @@ perfectly and is not what happened.
 | Provider | Status | Auth |
 |---|---|---|
 | Grok | **Implemented**, verified complete | Cookies |
-| ChatGPT | Next | Bearer token from `/api/auth/session` |
+| ChatGPT | **Implemented** | Bearer token from `/api/auth/session` |
 | Claude | Next | Cookies, plus an organization-UUID discovery step |
 | Gemini | Deferred | — |
 
@@ -86,8 +86,27 @@ wrong, which is the only reason it took one round trip to find.
 
 **ChatGPT's failure mode is worth knowing in advance:** cookies alone return
 *zero items*, not a `401`. A collector built on cookies would report "no
-conversations" and look like an empty account. An empty ChatGPT list is
-treated as suspicious, not final.
+conversations" and look like an empty account. The adapter fetches the token
+first and raises if it is missing, rather than letting an empty list stand.
+
+**ChatGPT no longer returns the `mapping` node graph** every write-up of this
+API describes, including our own design doc. A probe against a live account
+found `messages` — a flat, ordered array with no parent and no children —
+plus a `page_info` with cursors. The server resolves the branch itself, so
+the leaf-to-root walk does not apply here at all.
+
+Two more things that probe settled. The list sends ISO 8601 strings while
+message `create_time` is a NUMBER, so one provider uses two timestamp formats
+and the adapter converts. And `num_turns=1000` is a `422` — that parameter
+went with the old API, and a 274-message conversation came back whole with
+`has_previous_page: false`.
+
+Most of what ChatGPT returns is not conversation. In that 274-message
+thread: 23 system, 85 tool, 23 flagged hidden, and content types including
+`thoughts`, `reasoning_recap`, `code`, `execution_output` and
+`model_editable_context`. The adapter keeps `text` and `multimodal_text` from
+`user` and `assistant`, by **allowlist** — one probe found seven content
+types, and a blocklist would quietly start letting new ones through.
 
 Adding an engine means implementing `ProviderAdapter` (`src/types.ts`) and
 adding a line to `src/providers/index.ts`. The sync loop, the eMe client and

@@ -62,10 +62,18 @@ export interface ProviderAdapter {
    * Every conversation the account has, newest first where the provider
    * offers an order.
    *
-   * Providers differ on paging: ChatGPT and Claude take limit/offset, Grok
-   * ignores both and returns everything. That difference lives in here.
+   * Providers differ on paging: ChatGPT takes limit/offset and orders by
+   * update time, Grok ignores both and returns everything. That difference
+   * lives in here.
+   *
+   * `since` is the sync watermark, and is a HINT, not a filter. A provider
+   * that returns newest-first may stop paging once it is past it, which is
+   * what keeps an incremental sync on a large account to one request instead
+   * of twenty. A provider that cannot order, or returns everything anyway,
+   * ignores it. Either way the caller filters again, so returning too much
+   * is correct and returning too little is not.
    */
-  listConversations(): Promise<ConversationSummary[]>;
+  listConversations(since?: string): Promise<ConversationSummary[]>;
 
   /** The full thread for one conversation, already flattened to the active branch. */
   fetchConversation(id: string): Promise<Conversation>;

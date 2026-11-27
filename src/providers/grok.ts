@@ -207,6 +207,8 @@ export const grok: ProviderAdapter = {
   origin: ORIGIN,
 
   async listConversations(): Promise<ConversationSummary[]> {
+    // `since` is ignored: this endpoint has no paging to stop early from.
+    // `limit=10`, `limit=2` and `max=2` were all disregarded by the server.
     return parseConversationList(await getJson(LIST_PATH));
   },
 
