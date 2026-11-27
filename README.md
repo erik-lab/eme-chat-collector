@@ -110,6 +110,18 @@ and the adapter converts. And `num_turns=1000` is a `422` — that parameter
 went with the old API, and a 274-message conversation came back whole with
 `has_previous_page: false`.
 
+**Projects need no special handling.** A project conversation was confirmed
+present in the ordinary list, carries an ordinary conversation id, and lives
+under a project path (`/g/g-p-…/c/<id>`) only in the UI. The adapter already
+collects them.
+
+**Archived conversations are asked for separately.** The default list and
+`is_archived=false` returned an identical 761 on the account this was built
+against — which had zero archived conversations, so it cannot say whether
+the default includes them. Both listings are fetched and unioned: one extra
+request when there are none, against a quietly partial history for anyone
+who files things away.
+
 Most of what ChatGPT returns is not conversation. In that 274-message
 thread: 23 system, 85 tool, 23 flagged hidden, and content types including
 `thoughts`, `reasoning_recap`, `code`, `execution_output` and

@@ -500,3 +500,93 @@ describe("fetchConversation paging", () => {
     assert.equal(conversation.messageCount, 2, "the tool page advanced without being counted");
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// Listing: two queries, unioned
+// ---------------------------------------------------------------------------
+//
+// A probe found the default list and `is_archived=false` returning the same
+// 761 conversations — on an account with ZERO archived ones, which cannot
+// say whether the default includes them. The tester may file things away,
+// and a quietly partial history is the failure this project keeps paying
+// for, so both are asked for and unioned.
+
+function listPage(ids: string[], over: Record<string, unknown> = {}) {
+  return {
+    items: ids.map((id, i) => ({
+      id,
+      title: `t${id}`,
+      create_time: "2026-01-01T00:00:00Z",
+      update_time: `2026-01-0${(i % 9) + 1}T00:00:00Z`,
+      ...over,
+    })),
+  };
+}
+
+/** Serves the session, then a body per request, recording the URLs asked for. */
+function stubList(bodies: unknown[]) {
+  const urls: string[] = [];
+  let next = 0;
+  globalThis.fetch = (async (url: string | URL) => {
+    const href = String(url);
+    if (href.includes("/api/auth/session")) {
+      return new Response(JSON.stringify({ accessToken: "tok" }), { status: 200 });
+    }
+    urls.push(href);
+    const body = bodies[next] ?? { items: [] };
+    next += 1;
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as typeof fetch;
+  return urls;
+}
+
+describe("listConversations", () => {
+  it("asks for the archived conversations too", async () => {
+    const urls = stubList([listPage(["a"]), listPage([])]);
+
+    await chatgpt.listConversations();
+
+    assert.equal(urls.length, 2);
+    assert.ok(!urls[0]!.includes("is_archived"), "the default listing first");
+    assert.ok(urls[1]!.includes("is_archived=true"), "then the archived one");
+  });
+
+  it("includes an archived conversation the default list omitted", async () => {
+    const urls = stubList([listPage(["a"]), listPage(["z"])]);
+
+    const all = await chatgpt.listConversations();
+
+    assert.deepEqual(all.map((c) => c.id).sort(), ["a", "z"]);
+    assert.equal(urls.length, 2);
+  });
+
+  it("does not return a conversation twice when both listings have it", async () => {
+    stubList([listPage(["a", "b"]), listPage(["b"])]);
+
+    const all = await chatgpt.listConversations();
+
+    assert.deepEqual(all.map((c) => c.id).sort(), ["a", "b"]);
+  });
+
+  it("stops paging once a page ends past the watermark", async () => {
+    // 100 rows means "there may be more"; the watermark is what says there
+    // is nothing older worth asking for.
+    const full = listPage(Array.from({ length: 100 }, (_, i) => `c${i}`));
+    const urls = stubList([full, listPage([])]);
+
+    await chatgpt.listConversations("2026-12-31T00:00:00Z");
+
+    assert.equal(urls.length, 2, "one page of each listing, not more");
+  });
+
+  it("keeps paging while a full page is still newer than the watermark", async () => {
+    const full = listPage(Array.from({ length: 100 }, (_, i) => `c${i}`));
+    const urls = stubList([full, listPage(["tail"]), listPage([])]);
+
+    await chatgpt.listConversations("2020-01-01T00:00:00Z");
+
+    assert.ok(urls.length >= 3, `kept going: ${urls.length} request(s)`);
+    assert.ok(urls[1]!.includes("offset=100"), "the second page of the default listing");
+  });
+});

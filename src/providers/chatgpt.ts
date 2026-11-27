@@ -331,22 +331,26 @@ export const chatgpt: ProviderAdapter = {
 
   async listConversations(since?: string): Promise<ConversationSummary[]> {
     const token = await accessToken();
-    const all: ConversationSummary[] = [];
 
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const body = await getJson(
-        `/backend-api/conversations?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}&order=updated`,
-        token,
-      );
-      const batch = parseConversationList(body);
-      all.push(...batch);
-
-      if (batch.length < PAGE_SIZE) break;
-      // Newest first, so once a page ends at or behind the watermark there
-      // is nothing older worth asking for.
-      if (since !== undefined && batch[batch.length - 1]!.updatedAt <= since) break;
+    // Two listings, unioned by id.
+    //
+    // The default one returned exactly the same 761 conversations as
+    // `is_archived=false` on the account this was built against — but that
+    // account had ZERO archived conversations, so it cannot say whether the
+    // default includes them. Asking explicitly costs one request when there
+    // are none, and is the difference between a complete history and a
+    // quietly partial one for anybody who files things away.
+    //
+    // Projects need no such treatment: a project conversation was confirmed
+    // present in the default list, carries an ordinary conversation id, and
+    // lives under a project path only in the UI.
+    const byId = new Map<string, ConversationSummary>();
+    for (const extra of ["", "&is_archived=true"]) {
+      for (const summary of await pageList(token, extra, since)) {
+        byId.set(summary.id, summary);
+      }
     }
-    return all;
+    return [...byId.values()];
   },
 
   async fetchConversation(id: string): Promise<Conversation> {
@@ -356,6 +360,34 @@ export const chatgpt: ProviderAdapter = {
     return buildConversation(summary, payload, id);
   },
 };
+
+/** Page one conversations listing until it runs out, or past the watermark. */
+async function pageList(
+  token: string,
+  extraQuery: string,
+  since: string | undefined,
+): Promise<ConversationSummary[]> {
+  const all: ConversationSummary[] = [];
+
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const body = await getJson(
+      `/backend-api/conversations?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}` +
+        `&order=updated${extraQuery}`,
+      token,
+    );
+    const batch = parseConversationList(body);
+    all.push(...batch);
+
+    if (batch.length < PAGE_SIZE) break;
+    // Newest first, so once a page ends at or behind the watermark there is
+    // nothing older worth asking for. Note this stops on the PAGE's oldest
+    // row, not the first row past the mark: the caller filters again, and
+    // over-fetching one page is cheaper than reasoning about an off-by-one
+    // that would silently drop a conversation.
+    if (since !== undefined && batch[batch.length - 1]!.updatedAt <= since) break;
+  }
+  return all;
+}
 
 /**
  * The bearer token, fetched fresh for each sync.
