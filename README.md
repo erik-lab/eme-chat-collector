@@ -116,13 +116,23 @@ worker does the fetching itself. Every sync report carries the `buildId` it
 came from, so a stale build is visible in the output rather than something to
 wonder about.
 
-Click the toolbar icon to open settings. Enter your eMe URL and an API key,
+Click the toolbar icon to open settings. Enter your eMe **API** URL and a key,
 tick the providers you want, and **Save**. Nothing is collected until you do:
 an extension that started shipping conversations the moment it was installed
 would be the thing this project exists to object to. **Sync now** runs
 immediately and prints the report, errors included.
 
 After that it syncs hourly on a `chrome.alarms` schedule.
+
+### Getting the URL right
+
+It is the URL your eMe **API** answers on, which is often not the address you
+open in a browser: the bare origin usually serves the web client, with the API
+behind a path prefix your proxy strips — `https://eme.example.com/v2/api`, say.
+Copy whatever your eMe web client calls.
+
+The giveaway is a sync reporting that **an HTML page came back, not eMe**. That
+means a proxy or web server answered, so the path is wrong — not the key.
 
 ## Configuration, keys and the thing to fix before anyone else installs this
 

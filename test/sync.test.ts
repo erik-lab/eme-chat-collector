@@ -138,14 +138,16 @@ describe("syncProvider", () => {
     assert.match(report.errors[0] ?? "", /c2: eMe returned 422/);
   });
 
-  it("reports the status and body when eMe refuses, not just a failure", async () => {
+  it("reports the status and cause when eMe refuses, not just a failure", async () => {
     // A 401 from a stale key and a 422 from a payload the server disliked
     // are the same colour to a user staring at "sync failed".
     stubFetch(() => new Response("key is not valid", { status: 401 }));
 
     const report = await syncProvider(fakeAdapter(), SETTINGS, { sleep: noSleep });
 
-    assert.match(report.errors[0] ?? "", /401 key is not valid/);
+    assert.match(report.errors[0] ?? "", /401/);
+    assert.match(report.errors[0] ?? "", /rejected the API key/);
+    assert.match(report.errors[0] ?? "", /key is not valid/, "the server's own words survive");
   });
 
   it("reports a provider that failed, rather than reporting no conversations", async () => {

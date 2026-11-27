@@ -26,8 +26,14 @@
 
     <fieldset>
       <legend>Your eMe</legend>
-      <label for="base-url">URL</label>
-      <input id="base-url" type="text" placeholder="https://eme.example.com" />
+      <label for="base-url">API URL</label>
+      <input id="base-url" type="text" placeholder="https://eme.example.com/v2/api" />
+      <p class="note">
+        The URL your eMe <em>API</em> answers on, which is often not the one you
+        open in a browser — the bare address usually serves the web client, with
+        the API under a path such as <code>/v2/api</code>. If a sync reports that
+        an HTML page came back, this is the field to fix.
+      </p>
       <label for="api-key">API key</label>
       <input id="api-key" type="password" autocomplete="off" />
       <p class="note">
