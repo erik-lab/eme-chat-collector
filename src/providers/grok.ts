@@ -209,10 +209,10 @@ async function getJson(path: string): Promise<unknown> {
   if (!response.ok) {
     throw new ProviderShapeError(
       "grok",
-      `GET ${path} returned ${response.status}. If this is a 404 or 405, the ` +
-        `request shape in src/providers/grok.ts is the reconstruction noted ` +
-        `there — re-capture it from devtools rather than assuming the account ` +
-        `is empty.`,
+      `GET ${path} returned ${response.status}. A 404, 405 or 501 means the ` +
+        `request shape in src/providers/grok.ts is wrong, not that the ` +
+        `account is empty — 501 in particular means the endpoint is there and ` +
+        `does not take GET. Re-capture the request from devtools.`,
     );
   }
   return response.json();
