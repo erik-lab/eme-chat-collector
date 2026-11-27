@@ -13,6 +13,7 @@ import { describe, it } from "node:test";
 
 import {
   buildConversation,
+  chatgpt,
   conversationUrl,
   isoFromEpoch,
   parseConversationList,
@@ -340,5 +341,162 @@ describe("buildConversation", () => {
       () => buildConversation(SUMMARY, { ...DETAIL, messages: [DETAIL.messages[0]] }, SUMMARY.id),
       ProviderShapeError,
     );
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Walking a long conversation backwards
+// ---------------------------------------------------------------------------
+//
+// The first request returns the NEWEST 50 messages. `?before=<start_cursor>`
+// returns the ones before them — found by trying several parameter names
+// against a conversation known to be paged.
+//
+// How the others failed is the part worth keeping. `cursor`, `start_cursor`
+// and `after` all returned **200 with the same page and has_previous_page
+// still true**. Any of them would have looked like working pagination and
+// looped forever, re-fetching page one while believing it progressed. A 404
+// would have been kinder.
+
+function page(
+  ids: string[],
+  { hasPrevious = false, cursor = "c" }: { hasPrevious?: boolean; cursor?: string } = {},
+) {
+  return {
+    title: "Long thread",
+    default_model_slug: "gpt-5",
+    page_info: { start_cursor: cursor, has_previous_page: hasPrevious },
+    messages: ids.map((id, i) =>
+      msg(id, i % 2 === 0 ? "user" : "assistant", `turn ${id}`, 1_764_250_000 + i),
+    ),
+  };
+}
+
+/** Serves /api/auth/session, then one response per subsequent request. */
+function stubChatGpt(pages: unknown[]) {
+  const urls: string[] = [];
+  let next = 0;
+  globalThis.fetch = (async (url: string | URL) => {
+    const href = String(url);
+    if (href.includes("/api/auth/session")) {
+      return new Response(JSON.stringify({ accessToken: "tok" }), { status: 200 });
+    }
+    urls.push(href);
+    const body = pages[next] ?? pages[pages.length - 1];
+    next += 1;
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as typeof fetch;
+  return urls;
+}
+
+describe("fetchConversation paging", () => {
+  it("fetches once when the conversation is whole", async () => {
+    const urls = stubChatGpt([page(["a", "b"])]);
+
+    const conversation = await chatgpt.fetchConversation("c1");
+
+    assert.equal(conversation.messageCount, 2);
+    assert.equal(urls.length, 1, "no cursor, no second request");
+  });
+
+  it("walks backwards and returns the whole conversation", async () => {
+    // 50 newest, then 7 earlier — the real shape of the conversation that
+    // exposed this: it reported 50 and was 57.
+    const newest = Array.from({ length: 50 }, (_, i) => `n${i}`);
+    const earlier = Array.from({ length: 7 }, (_, i) => `e${i}`);
+    const urls = stubChatGpt([
+      page(newest, { hasPrevious: true, cursor: "CUR" }),
+      page(earlier),
+    ]);
+
+    const conversation = await chatgpt.fetchConversation("c1");
+
+    assert.equal(conversation.messageCount, 57);
+    assert.match(urls[1] ?? "", /\?before=CUR$/, "the parameter is `before`");
+  });
+
+  it("puts the earlier page first, so the transcript reads in order", async () => {
+    const urls = stubChatGpt([
+      page(["n0", "n1"], { hasPrevious: true }),
+      page(["e0", "e1"]),
+    ]);
+
+    const conversation = await chatgpt.fetchConversation("c1");
+
+    assert.ok(
+      conversation.transcript.indexOf("turn e0") < conversation.transcript.indexOf("turn n0"),
+      "earlier messages must come first",
+    );
+    assert.equal(urls.length, 2);
+  });
+
+  it("keeps walking while there is more", async () => {
+    stubChatGpt([
+      page(["a"], { hasPrevious: true, cursor: "c1" }),
+      page(["b"], { hasPrevious: true, cursor: "c2" }),
+      page(["c"]),
+    ]);
+
+    const conversation = await chatgpt.fetchConversation("x");
+
+    assert.equal(conversation.messageCount, 3);
+  });
+
+  it("refuses to loop when a page returns nothing new", async () => {
+    // The exact failure three other parameter names produce: 200, the same
+    // messages, has_previous_page still true. Riding it spins forever while
+    // looking like progress.
+    stubChatGpt([
+      page(["a", "b"], { hasPrevious: true }),
+      page(["a", "b"], { hasPrevious: true }),
+    ]);
+
+    await assert.rejects(() => chatgpt.fetchConversation("x"), {
+      name: "ProviderShapeError",
+      message: /not advancing/,
+    });
+  });
+
+  it("stops rather than paging without end", async () => {
+    // Every page fresh and every page claiming more. A real conversation
+    // does not do this; a changed payload shape might.
+    let n = 0;
+    globalThis.fetch = (async (url: string | URL) => {
+      if (String(url).includes("/api/auth/session")) {
+        return new Response(JSON.stringify({ accessToken: "tok" }), { status: 200 });
+      }
+      n += 1;
+      return new Response(JSON.stringify(page([`m${n}`], { hasPrevious: true })), { status: 200 });
+    }) as typeof fetch;
+
+    await assert.rejects(() => chatgpt.fetchConversation("x"), { message: /still paging/ });
+  });
+
+  it("refuses when more is promised but no cursor is given", async () => {
+    stubChatGpt([
+      {
+        ...page(["a"]),
+        page_info: { has_previous_page: true, start_cursor: null },
+      },
+    ]);
+
+    await assert.rejects(() => chatgpt.fetchConversation("x"), { message: /no cursor/ });
+  });
+
+  it("does not mistake an all-tool page for a stalled one", async () => {
+    // Freshness is judged on RAW ids, not on parsed messages. A page can
+    // legitimately hold nothing but system and tool messages, and treating
+    // that as "no progress" would abort a conversation paging correctly.
+    const toolOnly = {
+      ...page([]),
+      page_info: { start_cursor: "c2", has_previous_page: true },
+      messages: [msg("t1", "tool", "{}", 1_764_249_000)],
+    };
+    stubChatGpt([page(["n0"], { hasPrevious: true }), toolOnly, page(["e0"])]);
+
+    const conversation = await chatgpt.fetchConversation("x");
+
+    assert.equal(conversation.messageCount, 2, "the tool page advanced without being counted");
   });
 });

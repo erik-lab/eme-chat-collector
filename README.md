@@ -95,6 +95,15 @@ found `messages` — a flat, ordered array with no parent and no children —
 plus a `page_info` with cursors. The server resolves the branch itself, so
 the leaf-to-root walk does not apply here at all.
 
+A long conversation is paged: the first request returns the newest 50, and
+`?before=<page_info.start_cursor>` walks backwards until
+`has_previous_page` is false. Worth recording how the alternatives failed —
+`cursor`, `start_cursor` and `after` each returned **200 with the same page
+and `has_previous_page` still true**. Any of them would have looked like
+working pagination and looped forever. A 404 would have been kinder, and
+that is why the adapter refuses a page that returns nothing new rather than
+trusting the status code.
+
 Two more things that probe settled. The list sends ISO 8601 strings while
 message `create_time` is a NUMBER, so one provider uses two timestamp formats
 and the adapter converts. And `num_turns=1000` is a `422` — that parameter

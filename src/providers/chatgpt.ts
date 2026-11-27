@@ -39,6 +39,13 @@ const PAGE_SIZE = 100;
 const MAX_PAGES = 50;
 
 /**
+ * A ceiling on walking one conversation backwards, at 50 messages a page.
+ * Generous — 2,500 messages is an extraordinary thread — and present only so
+ * a paging bug cannot spin forever.
+ */
+const MAX_MESSAGE_PAGES = 50;
+
+/**
  * Content types whose text is part of the conversation.
  *
  * An allowlist, not a blocklist. ChatGPT adds types over time — this probe
@@ -206,32 +213,116 @@ export function buildConversation(
 }
 
 /**
- * Refuse a conversation we have only part of.
+ * A last check that the paging below actually finished.
  *
- * `page_info.has_previous_page` says there are earlier messages behind a
- * cursor. The parameter for fetching them has not been observed — the probed
- * account's longest conversation, at 274 messages, came back whole — so
- * guessing it would mean either a wrong request or, worse, a transcript that
- * reads perfectly and is missing its beginning.
- *
- * So this fails loudly and names the one thing to capture. A partial
- * transcript stored as if complete is the failure this project keeps paying
- * for; a conversation that errors is visible in the sync report and can be
- * fixed in one round trip.
+ * Reached only if the loop exited with more to fetch, which should be
+ * impossible. Half a transcript looks exactly like a whole one, so the
+ * impossible case errors rather than being stored.
  */
 export function requireWholeConversation(payload: unknown, id: string): void {
-  const info = (payload as { page_info?: { has_previous_page?: unknown } | null } | null)
-    ?.page_info;
+  const info = pageInfo(payload);
   if (info?.has_previous_page === true) {
     throw new ProviderShapeError(
       "chatgpt",
-      `conversation ${id} has earlier messages behind a cursor, and the ` +
-        `request for them is not yet known. Capture the follow-up request ` +
-        `the UI makes when scrolling to the top of a long conversation, and ` +
-        `see page_info in src/providers/chatgpt.ts. Not stored, because half ` +
-        `a transcript looks exactly like a whole one.`,
+      `conversation ${id} still reports earlier messages after paging. Not ` +
+        `stored, because half a transcript looks exactly like a whole one.`,
     );
   }
+}
+
+interface PageInfo {
+  start_cursor?: unknown;
+  has_previous_page?: unknown;
+}
+
+export function pageInfo(payload: unknown): PageInfo | null {
+  const info = (payload as { page_info?: unknown } | null)?.page_info;
+  return info && typeof info === "object" ? (info as PageInfo) : null;
+}
+
+/** The raw message array, untouched, for stitching pages together. */
+function rawMessages(payload: unknown): unknown[] {
+  const rows = (payload as { messages?: unknown } | null)?.messages;
+  if (!Array.isArray(rows)) {
+    throw new ProviderShapeError("chatgpt", "conversation response has no `messages` array");
+  }
+  return rows;
+}
+
+function rawId(row: unknown): string | null {
+  const id = (row as { id?: unknown } | null)?.id;
+  return typeof id === "string" ? id : null;
+}
+
+/**
+ * Walk a conversation backwards until it is whole.
+ *
+ * The first request returns the NEWEST page — 50 messages, with
+ * `page_info.has_previous_page` true when there are more. The rest come from
+ * `?before=<start_cursor>`, each page earlier than the last, so pages are
+ * prepended.
+ *
+ * `before` is the parameter, found by trying several against a conversation
+ * known to be paged. The others are worth recording because of how they
+ * fail: `cursor`, `start_cursor` and `after` all return **200 with the same
+ * page and has_previous_page still true**. Any of them would have looked
+ * like working pagination and looped forever, re-fetching page one and
+ * believing it was making progress. A 404 would have been kinder.
+ *
+ * Freshness is checked on RAW ids rather than on parsed messages: a page can
+ * legitimately contain nothing but system and tool messages, which parse to
+ * nothing, and treating that as "no progress" would abort a conversation
+ * that was paging correctly.
+ */
+async function fetchAllPages(id: string, token: string): Promise<unknown> {
+  const detail = await getJson(`/backend-api/conversations/${id}`, token);
+  let messages = rawMessages(detail);
+  const seen = new Set(messages.map(rawId).filter((x): x is string => x !== null));
+
+  let info = pageInfo(detail);
+  let fetched = 1;
+
+  while (info?.has_previous_page === true) {
+    if (typeof info.start_cursor !== "string" || info.start_cursor === "") {
+      throw new ProviderShapeError(
+        "chatgpt",
+        `conversation ${id} reports earlier messages but gives no cursor`,
+      );
+    }
+    if (fetched >= MAX_MESSAGE_PAGES) {
+      throw new ProviderShapeError(
+        "chatgpt",
+        `conversation ${id} is still paging after ${MAX_MESSAGE_PAGES} requests`,
+      );
+    }
+
+    const page = await getJson(
+      `/backend-api/conversations/${id}?before=${encodeURIComponent(info.start_cursor)}`,
+      token,
+    );
+    fetched += 1;
+
+    const batch = rawMessages(page);
+    const fresh = batch.filter((row) => {
+      const rid = rawId(row);
+      return rid !== null && !seen.has(rid);
+    });
+    if (fresh.length === 0) {
+      // The loop trap, caught rather than ridden. Three other parameter
+      // names produce exactly this, and a collector that kept going would
+      // spin until the browser stopped it.
+      throw new ProviderShapeError(
+        "chatgpt",
+        `conversation ${id} returned no earlier messages for its cursor — ` +
+          `paging is not advancing, so the request shape has changed`,
+      );
+    }
+    fresh.forEach((row) => seen.add(rawId(row)!));
+    messages = [...fresh, ...messages];
+    info = pageInfo(page);
+  }
+
+  return { ...(detail as object), messages, page_info: info ?? { has_previous_page: false } };
 }
 
 export const chatgpt: ProviderAdapter = {
@@ -260,7 +351,7 @@ export const chatgpt: ProviderAdapter = {
 
   async fetchConversation(id: string): Promise<Conversation> {
     const token = await accessToken();
-    const payload = await getJson(`/backend-api/conversations/${id}`, token);
+    const payload = await fetchAllPages(id, token);
     const summary: ConversationSummary = { id, title: "", createdAt: "", updatedAt: "" };
     return buildConversation(summary, payload, id);
   },
