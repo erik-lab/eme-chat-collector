@@ -37,7 +37,40 @@ const CONTINUE_MINUTES = 1;
 
 chrome.runtime.onInstalled.addListener(() => {
   void chrome.alarms.create(ALARM, { periodInMinutes: PERIOD_MINUTES });
+  void resumeIfUnfinished();
 });
+
+// A browser restart. The periodic alarm survives it; a pending one-shot
+// continuation does not.
+chrome.runtime.onStartup.addListener(() => {
+  void resumeIfUnfinished();
+});
+
+/**
+ * Pick a backfill back up after a reload or a restart.
+ *
+ * Reloading the extension destroys its pending alarms, and the one-shot
+ * continuation is how a capped run arranges the next one. So a reload part
+ * way through a backfill silently drops it back to the hourly schedule, and
+ * the work crawls instead of finishing.
+ *
+ * That is not hypothetical: a 761-conversation backfill reached 82 over an
+ * afternoon of frequent reloads, when a minute-apart chain would have
+ * finished it in half an hour. Nothing reported a problem, because nothing
+ * had failed — the schedule had simply been forgotten.
+ *
+ * So the last report is consulted at startup, and an unfinished one is
+ * resumed. It reads the stored report rather than syncing unconditionally:
+ * starting a provider sync on every reload would hammer the providers
+ * during development, which is when reloads happen most.
+ */
+async function resumeIfUnfinished(): Promise<void> {
+  const stored = await chrome.storage.local.get("lastReports");
+  const reports = (stored.lastReports as SyncReport[] | undefined) ?? [];
+  if (shouldContinueSoon(reports)) {
+    await chrome.alarms.create(CONTINUE_ALARM, { delayInMinutes: CONTINUE_MINUTES });
+  }
+}
 
 /** Clicking the toolbar icon opens the settings page. */
 chrome.action.onClicked.addListener(() => {
