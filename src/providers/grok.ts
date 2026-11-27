@@ -16,7 +16,7 @@
  * user's own search index.
  */
 
-import { ConversationNotSettled, ProviderShapeError } from "../types.js";
+import { ConversationNotSettled, ProviderRequestError, ProviderShapeError } from "../types.js";
 import type { Conversation, ConversationSummary, Message, ProviderAdapter } from "../types.js";
 import { activePath, renderTranscript } from "../thread.js";
 
@@ -232,7 +232,7 @@ async function getJson(path: string): Promise<unknown> {
   });
 
   if (!response.ok) {
-    throw new ProviderShapeError(
+    throw new ProviderRequestError(
       "grok",
       `GET ${path} returned ${response.status}. A 404, 405 or 501 means the ` +
         `request shape in src/providers/grok.ts is wrong, not that the ` +

@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
 import { selectChanged, syncProvider } from "../src/sync.js";
-import { ConversationNotSettled } from "../src/types.js";
+import { ConversationNotSettled, ProviderRequestError, ProviderShapeError } from "../src/types.js";
 import type { Conversation, ConversationSummary, ProviderAdapter } from "../src/types.js";
 
 const SETTINGS = { baseUrl: "https://eme.test", apiKey: "k", enabled: ["fake"] };
@@ -223,6 +223,120 @@ describe("syncProvider", () => {
     const report = await syncProvider(fakeAdapter(), SETTINGS, { sleep: noSleep });
 
     assert.equal(report.messageCounts.length, 1);
+  });
+
+  it("steps over a conversation it cannot read and collects the rest", async () => {
+    // The first real ChatGPT sync listed 761 conversations, hit a payload it
+    // could not represent on the OLDEST one, and stored NOTHING. A single
+    // record held an entire history hostage, and the report said sent: 0
+    // with one error — accurate, and useless.
+    stubFetch(ok);
+    const adapter = fakeAdapter({
+      fetchConversation: async (id: string) => {
+        if (id === "c1") throw new ProviderShapeError("fake", "cannot represent this");
+        return {
+          id,
+          title: id,
+          transcript: `User: ${id}`,
+          startedAt: "2026-11-15T13:00:00.000Z",
+          endedAt: "2026-11-15T13:00:00.000Z",
+          messageCount: 1,
+          model: null,
+          url: `https://fake.test/${id}`,
+        };
+      },
+    });
+
+    const report = await syncProvider(adapter, SETTINGS, { sleep: noSleep });
+
+    assert.equal(report.sent, 2, "the other conversations must still be collected");
+    assert.equal(report.failed, 1);
+    assert.match(report.errors[0] ?? "", /c1: .*cannot represent/);
+    assert.equal(report.watermark, "2026-11-15T13:30:00.000Z", "the run still makes progress");
+  });
+
+  it("stops on a request failure instead of hammering the provider", async () => {
+    // A bad status is the provider saying stop. Stepping over it and walking
+    // the remaining seven hundred would be the wrong lesson learned from the
+    // fix above.
+    stubFetch(ok);
+    const adapter = fakeAdapter({
+      fetchConversation: async () => {
+        throw new ProviderRequestError("fake", "GET /x returned 429");
+      },
+    });
+
+    const report = await syncProvider(adapter, SETTINGS, { sleep: noSleep });
+
+    assert.equal(report.sent, 0);
+    assert.equal(report.failed, 0, "a transport failure is not a bad record");
+    assert.equal(report.errors.length, 1, "it stopped rather than trying all three");
+  });
+
+  it("stops once failures look systematic rather than unlucky", async () => {
+    // Several in a row is a changed payload shape, not bad luck. Walking the
+    // whole account to produce the same error hundreds of times buries the
+    // first and only useful one.
+    const many = Array.from({ length: 20 }, (_, i) => summary(`x${i}`, i + 1));
+    stubFetch(ok);
+    const adapter = fakeAdapter({
+      listConversations: async () => many,
+      fetchConversation: async () => {
+        throw new ProviderShapeError("fake", "shape changed");
+      },
+    });
+
+    const report = await syncProvider(adapter, SETTINGS, { maxConversations: 20, sleep: noSleep });
+
+    assert.ok(report.failed < 20, `stopped early, not after all 20 (got ${report.failed})`);
+    assert.match(report.errors.at(-1) ?? "", /systematic/);
+  });
+
+  it("caps the error list so one useful line is not buried", async () => {
+    const many = Array.from({ length: 20 }, (_, i) => summary(`y${i}`, i + 1));
+    stubFetch(ok);
+    const adapter = fakeAdapter({
+      listConversations: async () => many,
+      fetchConversation: async () => {
+        throw new ProviderShapeError("fake", "shape changed");
+      },
+    });
+
+    const report = await syncProvider(adapter, SETTINGS, { maxConversations: 20, sleep: noSleep });
+
+    assert.ok(report.errors.length <= 11, `got ${report.errors.length}`);
+  });
+
+  it("a run of failures does not reset the systematic check", async () => {
+    // One success in the middle means the next failures are, again, one bad
+    // record each — the counter has to start over.
+    const many = Array.from({ length: 6 }, (_, i) => summary(`z${i}`, i + 1));
+    stubFetch(ok);
+    let call = 0;
+    const adapter = fakeAdapter({
+      listConversations: async () => many,
+      fetchConversation: async (id: string) => {
+        call += 1;
+        if (call === 3) {
+          return {
+            id,
+            title: id,
+            transcript: "User: ok",
+            startedAt: "2026-11-15T13:00:00.000Z",
+            endedAt: "2026-11-15T13:00:00.000Z",
+            messageCount: 1,
+            model: null,
+            url: "https://fake.test/ok",
+          };
+        }
+        throw new ProviderShapeError("fake", "cannot represent");
+      },
+    });
+
+    const report = await syncProvider(adapter, SETTINGS, { maxConversations: 6, sleep: noSleep });
+
+    assert.equal(report.sent, 1);
+    assert.equal(report.failed, 5, "six attempted, one stored, none cut short");
   });
 
   it("caps a run and says it was capped", async () => {

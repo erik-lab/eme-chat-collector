@@ -20,7 +20,7 @@
  *     thoughts, reasoning_recap, model_editable_context.
  */
 
-import { ProviderShapeError } from "../types.js";
+import { ProviderRequestError, ProviderShapeError } from "../types.js";
 import type { Conversation, ConversationSummary, Message, ProviderAdapter } from "../types.js";
 import { renderTranscript } from "../thread.js";
 
@@ -281,7 +281,7 @@ async function accessToken(): Promise<string> {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {
-    throw new ProviderShapeError(
+    throw new ProviderRequestError(
       "chatgpt",
       `/api/auth/session returned ${response.status}. Sign in to chatgpt.com and retry.`,
     );
@@ -304,7 +304,7 @@ async function getJson(path: string, token: string): Promise<unknown> {
     headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
   });
   if (!response.ok) {
-    throw new ProviderShapeError("chatgpt", `GET ${path} returned ${response.status}`);
+    throw new ProviderRequestError("chatgpt", `GET ${path} returned ${response.status}`);
   }
   return response.json();
 }

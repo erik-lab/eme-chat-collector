@@ -93,6 +93,21 @@ export class ConversationNotSettled extends Error {
   }
 }
 
+/**
+ * Thrown when a REQUEST fails — a bad status, a refused connection.
+ *
+ * Distinct from a shape error because the two deserve opposite responses. A
+ * conversation whose payload we cannot read is one bad record, and the other
+ * seven hundred should still be collected. A 429 or a 500 is the provider
+ * telling us to stop, and walking the rest of the list would be hammering it.
+ */
+export class ProviderRequestError extends Error {
+  constructor(provider: string, detail: string) {
+    super(`${provider}: ${detail}`);
+    this.name = "ProviderRequestError";
+  }
+}
+
 /** Thrown when a provider answers in a shape we do not recognise. */
 export class ProviderShapeError extends Error {
   constructor(provider: string, detail: string) {
