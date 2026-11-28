@@ -14,6 +14,7 @@
 import { BUILD_ID } from "./build-info.js";
 import { clearWatermarks, loadSettings, loadWatermarks, setWatermark } from "./settings.js";
 import { PROVIDERS, providerBySource } from "./providers/index.js";
+import { pace } from "./pace.js";
 import { shouldContinueSoon } from "./schedule.js";
 import { syncProvider, type SyncReport } from "./sync.js";
 
@@ -108,15 +109,16 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, respond) => {
 });
 
 /**
- * How long a run may hold the lock before another may start.
+ * How long a lock may go unrefreshed before another run may take it.
  *
- * Generous: a capped run of 25 conversations at three seconds apart, plus
- * paged lists, is a few minutes. The ceiling exists only so a worker killed
- * mid-run cannot block syncing forever — MV3 kills them whenever it likes,
- * and a lock with no expiry would mean the backfill simply stopped one day.
+ * Short, because a live run REFRESHES it — see the heartbeat below. The
+ * first version set it once at the start and waited fifteen minutes before
+ * considering it stale, which meant a worker killed mid-run stopped
+ * collection dead for a quarter of an hour. MV3 kills workers whenever it
+ * likes, so that was not a rare case; it was the normal one.
  */
-const LOCK_STALE_MS = 15 * 60 * 1000;
-const LOCK_KEY = "syncStartedAt";
+const LOCK_STALE_MS = 2 * 60 * 1000;
+const LOCK_KEY = "syncHeartbeatAt";
 
 /**
  * Run the enabled providers, unless a run is already going.
@@ -135,8 +137,13 @@ export async function syncAll(): Promise<SyncReport[]> {
   if (settings === null) return [];
 
   const held = await chrome.storage.local.get(LOCK_KEY);
-  const startedAt = held[LOCK_KEY] as number | undefined;
-  if (startedAt !== undefined && Date.now() - startedAt < LOCK_STALE_MS) {
+  const beat = held[LOCK_KEY] as number | undefined;
+  if (beat !== undefined && Date.now() - beat < LOCK_STALE_MS) {
+    // Another run is going. Come back shortly rather than returning
+    // silently: this path used to skip recordReports, so it also skipped
+    // scheduling the next run — one overlap would drop a backfill back to
+    // the hourly alarm and nothing would say why.
+    await chrome.alarms.create(CONTINUE_ALARM, { delayInMinutes: CONTINUE_MINUTES });
     return [];
   }
   await chrome.storage.local.set({ [LOCK_KEY]: Date.now() });
@@ -182,7 +189,17 @@ async function runOne(source: string): Promise<SyncReport> {
   if (adapter === undefined) return empty([`no adapter for "${source}"`]);
 
   const watermarks = await loadWatermarks();
-  const report = await syncProvider(adapter, settings, { since: watermarks[source] });
+  const report = await syncProvider(adapter, settings, {
+    since: watermarks[source],
+    // The heartbeat, hung on the pause the loop already takes between
+    // conversations. A live run keeps the lock fresh; a worker that dies
+    // stops refreshing it and the lock expires in a couple of minutes
+    // rather than holding collection up for fifteen.
+    sleep: async (ms) => {
+      await chrome.storage.local.set({ [LOCK_KEY]: Date.now() });
+      await pace(ms);
+    },
+  });
 
   if (report.watermark !== undefined && report.watermark !== watermarks[source]) {
     await setWatermark(source, report.watermark);
