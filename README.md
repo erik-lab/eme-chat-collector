@@ -62,8 +62,27 @@ perfectly and is not what happened.
 |---|---|---|
 | Grok | **Implemented**, verified complete | Cookies |
 | ChatGPT | **Implemented** | Bearer token from `/api/auth/session` |
-| Claude | Next | Cookies, plus an organization-UUID discovery step |
+| Claude | **Implemented**; coverage unverified | Cookies, plus an organization-UUID discovery step |
 | Gemini | Deferred | — |
+
+**Claude's notes were wrong in three places**, all found by probing before
+writing. A message's flat `text` field is **empty** — the content is in a
+typed `content[]`, and building on `text` as described would have collected
+conversations containing nothing, which is not an error anywhere downstream,
+just a record that never matches a search. An ordinary account has **two
+organizations**, only one of which has the `chat` capability; taking the
+first works by luck. And `?tree=True` changes nothing, so it is not sent.
+
+Claude is the provider the shared leaf-to-root walk was written for: it
+names `current_leaf_message_uuid` *and* every message carries
+`parent_message_uuid`. Grok has the pointers but no leaf; ChatGPT resolves
+the branch server-side and needs no walk at all.
+
+**What is not yet verified for Claude**: whether the list includes archived
+conversations (neither `archived=true` nor `is_archived=true` filters — the
+latter returns page one unchanged), whether project conversations are in the
+ordinary list, and whether a long conversation is capped. `probes/claude-coverage.js`
+asks all three.
 
 Gemini's web app speaks `batchexecute`, Google's positional-array RPC, and the
 request needs a dated build string that changes with every deploy. That is a
