@@ -19,6 +19,16 @@
  *     happens to work and is luck.
  *   - `?tree=True` changes nothing, so it is not sent.
  *
+ *   - Project conversations are in the ordinary list, as ChatGPT's are: a
+ *     project's own endpoint returned nothing the main list did not already
+ *     have. The list row carries `project: {name, uuid}` when it has one.
+ *   - A conversation's first message has a parent of
+ *     00000000-0000-4000-8000-000000000000 — a synthetic root the API never
+ *     returns, exactly as Grok does. The walk stops there, which is correct;
+ *     on a provider that paged its turns the same shape would mean the
+ *     opposite.
+ *   - The longest conversation found was 48 messages, no `truncated` flags
+ *     and no paging keys, so there is no evidence of a cap.
  *   - Timestamps are ISO 8601 strings throughout, so no conversion.
  *   - `limit`/`offset` page correctly, with no overlap.
  *   - Senders are `human` and `assistant`; content blocks seen are `text`
@@ -42,6 +52,29 @@ const MAX_PAGES = 50;
  * not text a person wrote or read as dialogue.
  */
 const VISIBLE_BLOCK_TYPES = new Set(["text"]);
+
+/**
+ * `rendering_mode=messages` is not optional, and finding that out was close.
+ *
+ * WITHOUT it the response carries a flat `text` per message and no `content`
+ * array at all. WITH it, `text` is empty and the content is in typed blocks.
+ * Two probes disagreed about which was true because one happened to send the
+ * parameter and the other did not — and this adapter, reading only the
+ * blocks, would have parsed every conversation to zero messages.
+ *
+ * That failure would have been quiet. Zero visible messages is not an error
+ * anywhere downstream; it is a provider that syncs, reports success, and
+ * stores conversations with nothing in them.
+ *
+ * The typed blocks are worth the parameter: they are what makes dropping
+ * `thinking` possible. The flat rendering gives one string per message with
+ * no way to tell reasoning from reply.
+ *
+ * `tree=True` is NOT sent — it was probed with and without and changed
+ * nothing, and a parameter carried for superstition is one nobody dares
+ * remove later.
+ */
+const DETAIL_QUERY = "rendering_mode=messages";
 
 export function conversationUrl(id: string): string {
   return `${ORIGIN}/chat/${id}`;
@@ -166,7 +199,23 @@ export function buildConversation(summary: ConversationSummary, payload: unknown
 
   // The leaf is named and present, so this is a real branch resolution
   // rather than the reconstruction Grok needs.
-  const path = activePath(parseMessages(payload), leaf);
+  const parsed = parseMessages(payload);
+
+  // A conversation that HAS messages but none we can read is the signature
+  // of the wrong rendering mode: flat `text` and no typed blocks. Saying so
+  // beats "yielded no messages", which would send the next person looking at
+  // the parser rather than at the request.
+  const total = ((payload as { chat_messages?: unknown[] })?.chat_messages ?? []).length;
+  if (parsed.length === 0 && total > 0) {
+    throw new ProviderShapeError(
+      "claude",
+      `conversation ${summary.id} has ${total} message(s) but no readable content. ` +
+        `This is what the response looks like without rendering_mode=messages: ` +
+        `a flat text field and no typed blocks.`,
+    );
+  }
+
+  const path = activePath(parsed, leaf);
   if (path.length === 0) {
     throw new ProviderShapeError("claude", `conversation ${summary.id} yielded no messages`);
   }
@@ -211,10 +260,9 @@ export const claude: ProviderAdapter = {
 
   async fetchConversation(id: string): Promise<Conversation> {
     const org = pickChatOrg(await getJson("/api/organizations"));
-    // No `tree=True`: it was probed with and without and changed nothing,
-    // and a parameter carried for superstition is a parameter nobody dares
-    // remove later.
-    const payload = await getJson(`/api/organizations/${org}/chat_conversations/${id}`);
+    const payload = await getJson(
+      `/api/organizations/${org}/chat_conversations/${id}?${DETAIL_QUERY}`,
+    );
     const summary: ConversationSummary = { id, title: "Untitled", createdAt: "", updatedAt: "" };
     return buildConversation(summary, payload);
   },

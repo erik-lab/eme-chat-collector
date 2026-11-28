@@ -12,6 +12,7 @@ import { describe, it } from "node:test";
 
 import {
   buildConversation,
+  claude,
   conversationUrl,
   parseConversationList,
   parseMessages,
@@ -259,5 +260,90 @@ describe("buildConversation", () => {
       () => buildConversation(SUMMARY, { ...DETAIL, chat_messages: [] }),
       ProviderShapeError,
     );
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The rendering mode, which decides whether anything is collected at all
+// ---------------------------------------------------------------------------
+//
+// WITHOUT `rendering_mode=messages` the response carries a flat `text` per
+// message and no `content` array. WITH it, `text` is empty and the content
+// is in typed blocks. Two probes disagreed about which was true, because one
+// sent the parameter and the other did not — and this adapter, reading only
+// the blocks, would have parsed every conversation to zero messages.
+//
+// That failure is quiet: zero visible messages is not an error anywhere
+// downstream. It is a provider that syncs, reports success, and stores
+// conversations with nothing in them.
+
+function flatMessage(uuid: string, sender: string, text: string, parent: string | null) {
+  return {
+    uuid,
+    text, // populated, and no `content` at all — the un-rendered shape
+    sender,
+    created_at: "2026-11-25T13:44:00.000000Z",
+    parent_message_uuid: parent,
+  };
+}
+
+describe("rendering mode", () => {
+  it("requests the typed blocks", async () => {
+    const urls: string[] = [];
+    globalThis.fetch = (async (url: string | URL) => {
+      urls.push(String(url));
+      const body = String(url).includes("/organizations/") && String(url).includes("chat_conversations")
+        ? DETAIL
+        : ORGS;
+      return new Response(JSON.stringify(body), { status: 200 });
+    }) as typeof fetch;
+
+    await claude.fetchConversation("c-1");
+
+    const detailUrl = urls.find((u) => u.includes("chat_conversations/"));
+    assert.match(detailUrl ?? "", /rendering_mode=messages/);
+    assert.ok(!detailUrl?.includes("tree=True"), "tree=True changed nothing, so it is not sent");
+  });
+
+  it("says so when the response came back un-rendered", () => {
+    // Rather than "yielded no messages", which would send the next person
+    // looking at the parser instead of at the request.
+    const unrendered = {
+      ...DETAIL,
+      chat_messages: [
+        flatMessage("m1", "human", "how should we do this?", null),
+        flatMessage("m2", "assistant", "Start with the schema.", "m1"),
+      ],
+    };
+
+    assert.throws(() => buildConversation(SUMMARY, unrendered), {
+      name: "ProviderShapeError",
+      message: /rendering_mode=messages/,
+    });
+  });
+
+  it("still reports an empty conversation as empty", () => {
+    // No messages at all is a different thing from messages we cannot read,
+    // and conflating them would make the rendering-mode hint misleading.
+    assert.throws(() => buildConversation(SUMMARY, { ...DETAIL, chat_messages: [] }), {
+      message: /yielded no messages/,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The synthetic root
+// ---------------------------------------------------------------------------
+
+describe("the root message's parent", () => {
+  it("walks the whole thread despite a parent that is not in the set", () => {
+    // Claude roots a thread at 00000000-0000-4000-8000-000000000000, which
+    // the API never returns — exactly as Grok does. A dangling parent reads
+    // like evidence of unfetched turns and here means nothing of the sort.
+    const conversation = buildConversation(SUMMARY, DETAIL);
+
+    assert.equal(conversation.messageCount, 3);
+    assert.ok(conversation.transcript.startsWith("User: how should we do this?"));
   });
 });

@@ -62,7 +62,7 @@ perfectly and is not what happened.
 |---|---|---|
 | Grok | **Implemented**, verified complete | Cookies |
 | ChatGPT | **Implemented** | Bearer token from `/api/auth/session` |
-| Claude | **Implemented**; coverage unverified | Cookies, plus an organization-UUID discovery step |
+| Claude | **Implemented** | Cookies, plus an organization-UUID discovery step |
 | Gemini | Deferred | — |
 
 **Claude's notes were wrong in three places**, all found by probing before
@@ -78,11 +78,28 @@ names `current_leaf_message_uuid` *and* every message carries
 `parent_message_uuid`. Grok has the pointers but no leaf; ChatGPT resolves
 the branch server-side and needs no walk at all.
 
-**What is not yet verified for Claude**: whether the list includes archived
-conversations (neither `archived=true` nor `is_archived=true` filters — the
-latter returns page one unchanged), whether project conversations are in the
-ordinary list, and whether a long conversation is capped. `probes/claude-coverage.js`
-asks all three.
+**`rendering_mode=messages` is not optional.** Without it the response
+carries a flat `text` per message and no `content` array; with it, `text` is
+empty and the content is in typed blocks. Two probe runs disagreed about
+which was true because one sent the parameter and the other did not. The
+adapter reads the blocks — they are what makes dropping `thinking` possible,
+since the flat rendering gives one string per message with no way to tell
+reasoning from reply.
+
+**Project conversations are in the ordinary list**, as ChatGPT's are: a
+project's own endpoint returned nothing the main list did not already have.
+A list row carries `project: {name, uuid}` when it belongs to one.
+
+**A conversation's first message has a parent of
+`00000000-0000-4000-8000-000000000000`** — a synthetic root the API never
+returns, exactly as Grok does. The longest conversation found was 48
+messages, with no `truncated` flags and no paging keys, so there is no
+evidence of a cap.
+
+**Still unverified**: whether the list includes archived conversations. The
+probed account had none, and neither `archived=true` nor `is_archived=true`
+filters — the second returns page one unchanged — so there is no parameter
+to opt in with and nothing to count.
 
 Gemini's web app speaks `batchexecute`, Google's positional-array RPC, and the
 request needs a dated build string that changes with every deploy. That is a
