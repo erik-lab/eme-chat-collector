@@ -21,6 +21,7 @@ function report(over: Partial<SyncReport> = {}): SyncReport {
     sent: 25,
     skipped: 0,
     failed: 0,
+    empty: 0,
     messageCounts: [],
     errors: [],
     watermark: "2023-05-06T15:22:08Z",
