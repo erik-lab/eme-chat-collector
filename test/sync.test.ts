@@ -10,7 +10,12 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
 import { selectChanged, syncProvider } from "../src/sync.js";
-import { ConversationNotSettled, ProviderRequestError, ProviderShapeError } from "../src/types.js";
+import {
+  ConversationEmpty,
+  ConversationNotSettled,
+  ProviderRequestError,
+  ProviderShapeError,
+} from "../src/types.js";
 import type { Conversation, ConversationSummary, ProviderAdapter } from "../src/types.js";
 
 const SETTINGS = { baseUrl: "https://eme.test", apiKey: "k", enabled: ["fake"] };
@@ -384,5 +389,74 @@ describe("syncProvider", () => {
     assert.equal(report.changed, 0);
     assert.equal(sent.length, 0);
     assert.equal(report.watermark, "2026-11-15T13:30:00.000Z");
+  });
+});
+
+describe("empty conversations", () => {
+  it("counts an unused chat instead of calling it an error", async () => {
+    // Every provider creates a conversation record the moment a new chat is
+    // opened. A first sync of a real account finds a dozen, and a dozen
+    // error lines for a dozen non-problems is how an error list stops being
+    // read — which matters, because that list is where the real failures go.
+    stubFetch(ok);
+    const adapter = fakeAdapter({
+      fetchConversation: async (id: string) => {
+        if (id === "c2") throw new ConversationEmpty("fake", id);
+        return {
+          id,
+          title: id,
+          transcript: `User: ${id}`,
+          startedAt: "2026-11-15T13:00:00.000Z",
+          endedAt: "2026-11-15T13:00:00.000Z",
+          messageCount: 1,
+          model: null,
+          url: `https://fake.test/${id}`,
+        };
+      },
+    });
+
+    const report = await syncProvider(adapter, SETTINGS, { sleep: noSleep });
+
+    assert.equal(report.empty, 1);
+    assert.equal(report.sent, 2);
+    assert.deepEqual(report.errors, [], "an unused chat is not a failure");
+    assert.equal(report.failed, 0);
+  });
+
+  it("moves past an empty conversation for good", async () => {
+    // There is nothing to collect, ever. Leaving the watermark behind it
+    // would mean re-fetching it on every sync, forever.
+    stubFetch(ok);
+    const adapter = fakeAdapter({
+      fetchConversation: async () => {
+        throw new ConversationEmpty("fake", "x");
+      },
+    });
+
+    const report = await syncProvider(adapter, SETTINGS, { sleep: noSleep });
+
+    assert.equal(report.empty, 3);
+    assert.equal(report.watermark, "2026-11-15T13:30:00.000Z");
+  });
+
+  it("does not let empties mask a systematic failure", async () => {
+    // An empty neither counts as a failure nor clears the counter: five bad
+    // payloads are still five bad payloads with unused chats in between.
+    const many = Array.from({ length: 12 }, (_, i) => summary(`q${i}`, i + 1));
+    stubFetch(ok);
+    let n = 0;
+    const adapter = fakeAdapter({
+      listConversations: async () => many,
+      fetchConversation: async (id: string) => {
+        n += 1;
+        throw n % 2 === 0
+          ? new ConversationEmpty("fake", id)
+          : new ProviderShapeError("fake", "shape changed");
+      },
+    });
+
+    const report = await syncProvider(adapter, SETTINGS, { maxConversations: 12, sleep: noSleep });
+
+    assert.match(report.errors.at(-1) ?? "", /systematic/);
   });
 });

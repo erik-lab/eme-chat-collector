@@ -21,7 +21,7 @@ import {
   requireWholeConversation,
   visibleText,
 } from "../src/providers/chatgpt.js";
-import { ProviderShapeError } from "../src/types.js";
+import { ConversationEmpty, ProviderShapeError } from "../src/types.js";
 
 const LIST = {
   items: [
@@ -334,9 +334,17 @@ describe("buildConversation", () => {
     assert.equal(conversationUrl("abc"), "https://chatgpt.com/c/abc");
   });
 
-  it("raises rather than storing a conversation with nothing visible in it", () => {
-    // A thread of nothing but tool calls is not a conversation, and an empty
-    // transcript in the index is worse than an error in the report.
+  it("reports an unused chat as empty, not as broken", () => {
+    assert.throws(
+      () => buildConversation(SUMMARY, { ...DETAIL, messages: [] }, SUMMARY.id),
+      ConversationEmpty,
+    );
+  });
+
+  it("treats records with nothing visible as a problem, not an empty chat", () => {
+    // A thread of nothing but system and tool turns is more likely the
+    // content allowlist falling behind a new block type than a chat nobody
+    // used — and that is worth hearing about rather than counting silently.
     assert.throws(
       () => buildConversation(SUMMARY, { ...DETAIL, messages: [DETAIL.messages[0]] }, SUMMARY.id),
       ProviderShapeError,

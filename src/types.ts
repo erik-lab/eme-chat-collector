@@ -94,6 +94,26 @@ export class ConversationNotSettled extends Error {
 }
 
 /**
+ * Thrown when a conversation has nothing in it.
+ *
+ * Not a failure. Every provider creates a conversation record the moment a
+ * new chat is opened, so an account accumulates ones that were never used.
+ * There is nothing to collect and nothing wrong.
+ *
+ * Distinct from a shape error on purpose. "No records at all" is an empty
+ * chat; "records present, none readable" is a parser or request problem
+ * worth hearing about — Claude's whole content disappears without
+ * `rendering_mode=messages`, and that must not be filed under the same
+ * heading as an unused chat.
+ */
+export class ConversationEmpty extends Error {
+  constructor(provider: string, id: string) {
+    super(`${provider}: conversation ${id} has no messages`);
+    this.name = "ConversationEmpty";
+  }
+}
+
+/**
  * Thrown when a REQUEST fails — a bad status, a refused connection.
  *
  * Distinct from a shape error because the two deserve opposite responses. A

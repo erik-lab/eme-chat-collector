@@ -16,7 +16,12 @@
  * user's own search index.
  */
 
-import { ConversationNotSettled, ProviderRequestError, ProviderShapeError } from "../types.js";
+import {
+  ConversationEmpty,
+  ConversationNotSettled,
+  ProviderRequestError,
+  ProviderShapeError,
+} from "../types.js";
 import type { Conversation, ConversationSummary, Message, ProviderAdapter } from "../types.js";
 import { activePath, renderTranscript } from "../thread.js";
 
@@ -179,6 +184,9 @@ export function buildConversation(summary: ConversationSummary, payload: unknown
   // costs one skipped conversation and saves storing half an answer under a
   // watermark that would never come back for the rest.
   if (isGenerating(payload)) throw new ConversationNotSettled("grok", summary.id);
+
+  const responses = (payload as { responses?: unknown[] } | null)?.responses ?? [];
+  if (responses.length === 0) throw new ConversationEmpty("grok", summary.id);
 
   const path = activePath(parseResponses(payload), null);
   if (path.length === 0) {

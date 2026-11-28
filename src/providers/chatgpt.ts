@@ -20,7 +20,7 @@
  *     thoughts, reasoning_recap, model_editable_context.
  */
 
-import { ProviderRequestError, ProviderShapeError } from "../types.js";
+import { ConversationEmpty, ProviderRequestError, ProviderShapeError } from "../types.js";
 import type { Conversation, ConversationSummary, Message, ProviderAdapter } from "../types.js";
 import { renderTranscript } from "../thread.js";
 
@@ -188,8 +188,14 @@ export function buildConversation(
 ): Conversation {
   requireWholeConversation(payload, id);
 
+  const raw = (payload as { messages?: unknown[] } | null)?.messages ?? [];
+  if (raw.length === 0) throw new ConversationEmpty("chatgpt", id);
+
   const messages = parseMessages(payload);
   if (messages.length === 0) {
+    // Records present, none readable. Not an empty chat — more likely the
+    // content allowlist has fallen behind a new block type, which is worth
+    // hearing about rather than filing under "nothing to collect".
     throw new ProviderShapeError("chatgpt", `conversation ${id} yielded no visible messages`);
   }
 

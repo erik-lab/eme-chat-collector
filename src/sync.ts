@@ -14,7 +14,7 @@
 import type { ConversationSummary, ProviderAdapter } from "./types.js";
 import type { Settings } from "./settings.js";
 import { upsertConversation } from "./eme.js";
-import { ConversationNotSettled, ProviderShapeError } from "./types.js";
+import { ConversationEmpty, ConversationNotSettled, ProviderShapeError } from "./types.js";
 
 export interface SyncOptions {
   /** Only conversations changed after this are fetched. */
@@ -40,6 +40,13 @@ export interface SyncReport {
    * over. Their ids are in `errors`; a re-send retries them.
    */
   failed: number;
+  /**
+   * Conversations with nothing in them. Every provider creates a record the
+   * moment a new chat is opened, so an account collects ones that were
+   * never used. Counted rather than listed as errors: an error list people
+   * learn to ignore is worse than no error list.
+   */
+  empty: number;
   /**
    * Turn counts of what was sent, largest first.
    *
@@ -103,6 +110,7 @@ export async function syncProvider(
     sent: 0,
     skipped: 0,
     failed: 0,
+    empty: 0,
     messageCounts: [],
     errors: [],
     watermark: options.since,
@@ -139,6 +147,17 @@ export async function syncProvider(
       if (error instanceof ConversationNotSettled) {
         report.skipped += 1;
         break;
+      }
+
+      // An unused chat. Nothing to collect and nothing wrong, so the
+      // watermark moves past it and it is never looked at again. Counted,
+      // not reported: a first sync of someone's account will find a dozen,
+      // and a dozen error lines for a dozen non-problems is how an error
+      // list stops being read.
+      if (error instanceof ConversationEmpty) {
+        report.empty += 1;
+        report.watermark = summary.updatedAt;
+        continue;
       }
 
       // One unreadable conversation is one bad record, not a reason to

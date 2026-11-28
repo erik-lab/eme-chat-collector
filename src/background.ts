@@ -134,6 +134,7 @@ async function runOne(source: string): Promise<SyncReport> {
     sent: 0,
     skipped: 0,
     failed: 0,
+    empty: 0,
     messageCounts: [],
     errors,
     watermark: undefined,

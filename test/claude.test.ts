@@ -19,7 +19,7 @@ import {
   pickChatOrg,
   visibleText,
 } from "../src/providers/claude.js";
-import { ProviderShapeError } from "../src/types.js";
+import { ConversationEmpty, ProviderShapeError } from "../src/types.js";
 
 const ORGS = [
   { uuid: "4e8fafd5-1468-45f5-ab81-3451f9a30e01", capabilities: ["claude_pro", "chat"] },
@@ -255,10 +255,10 @@ describe("buildConversation", () => {
     assert.equal(conversationUrl("abc"), "https://claude.ai/chat/abc");
   });
 
-  it("raises rather than storing an empty conversation", () => {
+  it("reports an unused chat as empty, not as broken", () => {
     assert.throws(
       () => buildConversation(SUMMARY, { ...DETAIL, chat_messages: [] }),
-      ProviderShapeError,
+      ConversationEmpty,
     );
   });
 });
@@ -323,11 +323,12 @@ describe("rendering mode", () => {
     });
   });
 
-  it("still reports an empty conversation as empty", () => {
-    // No messages at all is a different thing from messages we cannot read,
-    // and conflating them would make the rendering-mode hint misleading.
+  it("still tells an unused chat from an unreadable one", () => {
+    // No records at all is an unused chat. Records present but unreadable is
+    // the wrong rendering mode. Conflating them would either bury a real
+    // problem or raise a false one, and the two want opposite responses.
     assert.throws(() => buildConversation(SUMMARY, { ...DETAIL, chat_messages: [] }), {
-      message: /yielded no messages/,
+      name: "ConversationEmpty",
     });
   });
 });

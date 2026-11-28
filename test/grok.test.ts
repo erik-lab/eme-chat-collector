@@ -17,7 +17,7 @@ import {
   parseModel,
   parseResponses,
 } from "../src/providers/grok.js";
-import { ConversationNotSettled, ProviderShapeError } from "../src/types.js";
+import { ConversationEmpty, ConversationNotSettled, ProviderShapeError } from "../src/types.js";
 
 const LIST = {
   conversations: [
@@ -226,10 +226,10 @@ describe("buildConversation", () => {
     assert.equal(buildConversation(SUMMARY, { responses }).messageCount, 2);
   });
 
-  it("raises rather than storing an empty conversation", () => {
-    assert.throws(
-      () => buildConversation(SUMMARY, { responses: [] }),
-      ProviderShapeError,
-    );
+  it("reports an unused chat as empty, not as broken", () => {
+    // A conversation record exists the moment a chat is opened. Nothing to
+    // collect, nothing wrong — and filing it under errors would teach the
+    // user to stop reading the list where real failures appear.
+    assert.throws(() => buildConversation(SUMMARY, { responses: [] }), ConversationEmpty);
   });
 });

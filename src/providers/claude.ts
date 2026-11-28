@@ -35,7 +35,7 @@
  *     and `thinking`.
  */
 
-import { ProviderRequestError, ProviderShapeError } from "../types.js";
+import { ConversationEmpty, ProviderRequestError, ProviderShapeError } from "../types.js";
 import type { Conversation, ConversationSummary, Message, ProviderAdapter } from "../types.js";
 import { activePath, renderTranscript } from "../thread.js";
 
@@ -214,6 +214,8 @@ export function buildConversation(summary: ConversationSummary, payload: unknown
         `a flat text field and no typed blocks.`,
     );
   }
+
+  if (total === 0) throw new ConversationEmpty("claude", summary.id);
 
   const path = activePath(parsed, leaf);
   if (path.length === 0) {

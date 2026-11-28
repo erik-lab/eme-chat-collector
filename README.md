@@ -223,6 +223,14 @@ extension was already sending — the stored records are stale but nothing looks
 out of date, and no ordinary sync will fix them. It cannot duplicate anything:
 each conversation is keyed on its own provider id and updates in place.
 
+A report separates four outcomes, because they want four different
+responses. `sent` is collected. `empty` is an unused chat — every provider
+creates a conversation record the moment one is opened, so a real account
+has a dozen, and listing them as errors is how an error list stops being
+read. `failed` is a conversation the adapter could not represent, stepped
+over with its id in `errors`. `skipped` is one still being generated, which
+the next run picks up.
+
 Each report lists `messageCounts`, the turn counts of what it sent, largest
 first. That is a diagnostic rather than a statistic: a provider's message
 endpoint may return the tail its UI needs rather than the whole conversation
