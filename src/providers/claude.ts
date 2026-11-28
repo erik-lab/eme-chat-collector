@@ -38,6 +38,7 @@
 import { ConversationEmpty, ProviderRequestError, ProviderShapeError } from "../types.js";
 import type { Conversation, ConversationSummary, Message, ProviderAdapter } from "../types.js";
 import { activePath, renderTranscript } from "../thread.js";
+import { PAGE_DELAY_MS, pace } from "../pace.js";
 
 const ORIGIN = "https://claude.ai";
 const PAGE_SIZE = 100;
@@ -245,6 +246,7 @@ export const claude: ProviderAdapter = {
     const all: ConversationSummary[] = [];
 
     for (let page = 0; page < MAX_PAGES; page += 1) {
+      if (page > 0) await pace(PAGE_DELAY_MS);
       const body = await getJson(
         `/api/organizations/${org}/chat_conversations` +
           `?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`,

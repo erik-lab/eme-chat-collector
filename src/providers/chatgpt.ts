@@ -23,6 +23,7 @@
 import { ConversationEmpty, ProviderRequestError, ProviderShapeError } from "../types.js";
 import type { Conversation, ConversationSummary, Message, ProviderAdapter } from "../types.js";
 import { renderTranscript } from "../thread.js";
+import { PAGE_DELAY_MS, pace } from "../pace.js";
 
 const ORIGIN = "https://chatgpt.com";
 const PAGE_SIZE = 100;
@@ -302,6 +303,7 @@ async function fetchAllPages(id: string, token: string): Promise<unknown> {
       );
     }
 
+    await pace(PAGE_DELAY_MS);
     const page = await getJson(
       `/backend-api/conversations/${id}?before=${encodeURIComponent(info.start_cursor)}`,
       token,
@@ -376,6 +378,7 @@ async function pageList(
   const all: ConversationSummary[] = [];
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
+    if (page > 0) await pace(PAGE_DELAY_MS);
     const body = await getJson(
       `/backend-api/conversations?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}` +
         `&order=updated${extraQuery}`,

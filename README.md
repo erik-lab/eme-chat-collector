@@ -284,13 +284,42 @@ decided against — is in
 [`docs/chat-collection-design.md`](https://github.com/erik-lab/eMeV2/blob/main/docs/chat-collection-design.md)
 in the backend repo.
 
+## Rate, and why it is deliberately slow
+
+A user of another history collector had their **ChatGPT account blocked** for
+rate violations caused by its backfill. That is the risk this is designed
+against — not being throttled, which is recoverable, but losing the account
+the data lives in. Slower is safer, and safer is faster: a backfill that
+takes two hours and finishes beats one that takes twenty minutes and gets the
+account locked at minute fifteen.
+
+So:
+
+- **Three seconds between conversations**, jittered ±25%. A request exactly
+  every 3,000ms is a signature nothing human produces.
+- **Paged lists are paced too.** Rate limiters notice bursts, not averages,
+  and sixteen list pages fetched back to back look nothing like a person even
+  when the hourly total is modest.
+- **25 conversations per run**, then a minute's pause. A first sync of 761
+  conversations takes a couple of hours in the background. Nobody is waiting
+  on it.
+- **Runs cannot overlap.** A storage lock stops a second alarm starting while
+  the first is still fetching, which would double the rate and race two
+  writers on one watermark.
+- **A bad status stops the run**, rather than walking the rest of the list.
+  A 429 is the provider saying stop.
+
 ## Terms, and being honest about them
 
-Provider terms generally prohibit automated access, even to your own data.
-"The user's own data, in the user's own authenticated session, going to storage
-the user controls" is a defensible position — but it is a position, not a
-permission. The extension reads at human pace, caps each run, and does only
-what the UI in front of you already does.
+The extension makes authenticated REST calls to the same endpoints each web
+app calls — it is not DOM scraping, and there is no content script. That
+distinction matters when reading terms, which often treat scraping and
+automated API access separately.
+
+Provider terms generally prohibit automated access all the same, even to your
+own data. "The user's own data, in the user's own authenticated session,
+going to storage the user controls" is a defensible position — but it is a
+position, not a permission.
 
 ## Layout
 

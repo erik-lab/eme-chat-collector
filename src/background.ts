@@ -107,17 +107,51 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, respond) => {
   return false;
 });
 
+/**
+ * How long a run may hold the lock before another may start.
+ *
+ * Generous: a capped run of 25 conversations at three seconds apart, plus
+ * paged lists, is a few minutes. The ceiling exists only so a worker killed
+ * mid-run cannot block syncing forever — MV3 kills them whenever it likes,
+ * and a lock with no expiry would mean the backfill simply stopped one day.
+ */
+const LOCK_STALE_MS = 15 * 60 * 1000;
+const LOCK_KEY = "syncStartedAt";
+
+/**
+ * Run the enabled providers, unless a run is already going.
+ *
+ * Without this, two alarms can overlap: a run now takes longer than the
+ * minute between continuations, so the next one fires while the first is
+ * still fetching. That doubles the request rate against providers we are
+ * deliberately being gentle with, and races two writers on the same
+ * watermark.
+ *
+ * The lock is in storage rather than in memory because the worker that took
+ * it may not be the one that would check it.
+ */
 export async function syncAll(): Promise<SyncReport[]> {
   const settings = await loadSettings();
   if (settings === null) return [];
 
-  const reports: SyncReport[] = [];
-  for (const adapter of PROVIDERS) {
-    if (!settings.enabled.includes(adapter.source)) continue;
-    reports.push(await runOne(adapter.source));
+  const held = await chrome.storage.local.get(LOCK_KEY);
+  const startedAt = held[LOCK_KEY] as number | undefined;
+  if (startedAt !== undefined && Date.now() - startedAt < LOCK_STALE_MS) {
+    return [];
   }
-  await recordReports(reports);
-  return reports;
+  await chrome.storage.local.set({ [LOCK_KEY]: Date.now() });
+
+  try {
+    const reports: SyncReport[] = [];
+    for (const adapter of PROVIDERS) {
+      if (!settings.enabled.includes(adapter.source)) continue;
+      reports.push(await runOne(adapter.source));
+    }
+    await recordReports(reports);
+    return reports;
+  } finally {
+    await chrome.storage.local.remove(LOCK_KEY);
+  }
 }
 
 async function syncOne(source: string): Promise<SyncReport[]> {

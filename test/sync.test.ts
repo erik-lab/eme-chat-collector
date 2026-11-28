@@ -9,7 +9,12 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
+import { disablePacingForTests } from "../src/pace.js";
 import { selectChanged, syncProvider } from "../src/sync.js";
+
+// Real waits would make this suite take minutes. The pacing itself is
+// tested by its own assertions, not by sitting through it.
+disablePacingForTests();
 import {
   ConversationEmpty,
   ConversationNotSettled,

@@ -14,6 +14,7 @@
 import type { ConversationSummary, ProviderAdapter } from "./types.js";
 import type { Settings } from "./settings.js";
 import { upsertConversation } from "./eme.js";
+import { pace } from "./pace.js";
 import { ConversationEmpty, ConversationNotSettled, ProviderShapeError } from "./types.js";
 
 export interface SyncOptions {
@@ -23,7 +24,7 @@ export interface SyncOptions {
   maxConversations?: number;
   /** Pause between per-conversation fetches, in milliseconds. */
   delayMs?: number;
-  /** Injectable for tests; defaults to a real timer. */
+  /** Injectable for tests; defaults to a real, jittered wait. */
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -80,7 +81,19 @@ export interface SyncReport {
 }
 
 const DEFAULT_MAX = 25;
-const DEFAULT_DELAY_MS = 1_500;
+/**
+ * Between conversations.
+ *
+ * Raised from 1,500ms after a reminder of what the downside actually is: a
+ * user of another collector had their ChatGPT account blocked over a
+ * backfill's request rate. Being throttled is recoverable; losing the
+ * account the data lives in is not, and no amount of finishing quickly is
+ * worth risking it.
+ *
+ * At this rate a 761-conversation backfill takes a couple of hours in the
+ * background rather than half an hour. Nobody is waiting on it.
+ */
+const DEFAULT_DELAY_MS = 3_000;
 
 /** Enough to see the pattern; not one per conversation in the account. */
 const MAX_REPORTED_ERRORS = 10;
@@ -95,7 +108,7 @@ export async function syncProvider(
 ): Promise<SyncReport> {
   const max = options.maxConversations ?? DEFAULT_MAX;
   const delayMs = options.delayMs ?? DEFAULT_DELAY_MS;
-  const sleep = options.sleep ?? realSleep;
+  const sleep = options.sleep ?? pace;
 
   // The watermark goes in as a hint: a provider that pages newest-first can
   // stop early instead of walking all of history. selectChanged filters
@@ -223,10 +236,6 @@ export function selectChanged(
     changed.push(summary);
   }
   return changed;
-}
-
-function realSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function describe(error: unknown): string {
